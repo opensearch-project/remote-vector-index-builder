@@ -11,15 +11,16 @@ Request Parameters
 {
     "repository_type": "s3", // Derived from repository settings
     "container_name": "VectorBucketName", // Derived from repository settings
-    "object_path": "VectorBlobPath", // Directory all vector/doc ID blobs are written to
+    "vector_path": "VectorBlobPath", // File path all vector blobs are written to
+    "doc_id_path" : "DocIdPath", // File path all doc Ids are written to
     "tenant_id": "UniqueClusterID", // Unique identifier for the cluster making the request
     "dimension": 768,
     "doc_count": 1000000,
     "data_type": "fp32", // {fp16, fp32, byte, binary}
-    "engine": "faiss",
+    "engine": "faiss", // {faiss, nmslib, lucene}
     "index_parameters": {
-        "space_type": "l2",
-        "algorithm": "hnsw",
+        "space_type": // {l2, cosinesimil, l1, linf, innerproduct, hamming}
+        "algorithm": "hnsw", {hnsw, ivf}
         "algorithm_parameters": {
             "ef_construction": 100,
             "m": 16
@@ -35,7 +36,7 @@ Request Response:
 
 #### Index Parameters
 
-* The only required parameters are `repository_type`, `container_name`, `object_path`, `dimension`, and `doc_count`. The rest will follow k-NN's existing precedent for defaults.
+* The only required parameters are `repository_type`, `container_name`, `vector_path`, `doc_id_path`, `dimension`, and `doc_count`. The rest will follow k-NN's existing precedent for defaults.
 * The top two parameters are derived by the KNN plugin from the customer's repo setting. `container_name` is used to specifically refer to the "bucket" (or non-S3 equivalent), rather than the name of the repository itself.
 * Tenant ID is included to be used for billing, authorization, etc
 * Dimension, doc count, and data type are specifically placed on the first JSON level so the build service can quickly use them first to calculate workload size
@@ -59,11 +60,11 @@ Request Response:
 {
     "task_status" : "String", //RUNNING_INDEX_BUILD, FAILED_INDEX_BUILD, COMPLETED_INDEX_BUILD
     "index_path" : "String" // Null if not completed
-    "error": "String"
+    "error_message": "String"
 }
 ```
 
-Client can expect an error in “error” if task_status == `FAILED_INDEX_BUILD`.
+Client can expect an error in “error_message” if task_status == `FAILED_INDEX_BUILD`.
 
 
 #### Error codes
