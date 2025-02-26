@@ -7,5 +7,4 @@
 
 
 def test_placeholder():
-    print("Hello World")
     assert 1 + 1 == 2
