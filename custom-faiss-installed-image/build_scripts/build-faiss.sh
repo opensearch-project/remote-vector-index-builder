@@ -28,8 +28,8 @@ echo "Running make command"
 
 make -C build -j6 faiss swigfaiss
 
-# Setting up the python code
+# Create Python FAISS bindings
 cd build/faiss/python && python3 setup.py build
 
-# make sure that faiss python code is available for the use
+# make faiss python bindings available for use
 export PYTHONPATH="$(ls -d `pwd`/tmp/faiss/build/faiss/python/build/lib*/):`pwd`/"
