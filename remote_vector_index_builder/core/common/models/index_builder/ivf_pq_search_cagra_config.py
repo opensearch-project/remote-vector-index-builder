@@ -4,3 +4,11 @@
 # The OpenSearch Contributors require contributions made to
 # this file be licensed under the Apache-2.0 license or a
 # compatible open source license.
+
+from dataclasses import dataclass
+
+
+@dataclass
+class IVFPQSearchCagraConfig:
+    # The number of clusters to search.
+    n_probes: int = 30
