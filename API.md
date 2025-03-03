@@ -16,13 +16,14 @@ Request Parameters
     "tenant_id": "UniqueClusterID", // Unique identifier for the cluster making the request
     "dimension": 768,
     "doc_count": 1000000,
-    "data_type": "fp32", // {fp16, fp32, byte, binary}
-    "engine": "faiss", // {faiss, nmslib, lucene}
+    "data_type": "float",
+    "engine": "faiss",
     "index_parameters": {
-        "space_type": // {l2, cosinesimil, l1, linf, innerproduct, hamming}
-        "algorithm": "hnsw", {hnsw, ivf}
+        "space_type": // {l2, innerproduct}
+        "algorithm": "hnsw",
         "algorithm_parameters": {
             "ef_construction": 100,
+            "ef_search": 100,
             "m": 16
         }
     }
@@ -44,6 +45,7 @@ Request Response:
 * Space type is inside `index_parameters` since it is only used in index creation
 * By including an `algorithm` field in index parameters, we leave the door open for IVF, future algorithms
 * The existing algorithm parameters will be type checked on the client and server side, but the size of the map is variable to allow for future parameter additions
+* Qualitative parameters like `repository_type`, `data_type`, `engine`, `algorithm`, and `space_type` currently only support the options listed. The other numerical and string settings follow k-NN/repository snapshot precedent on ranges and expected values: https://opensearch.org/docs/latest/search-plugins/knn/knn-index/
 
 #### Error codes
 
