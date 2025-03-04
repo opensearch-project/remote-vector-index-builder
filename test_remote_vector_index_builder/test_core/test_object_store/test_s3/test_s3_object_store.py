@@ -9,6 +9,7 @@ from io import BytesIO
 from unittest.mock import Mock, patch
 
 import pytest
+from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import ClientError
 from core.common.exceptions import BlobError
 from core.common.models.index_build_parameters import IndexBuildParameters
@@ -79,8 +80,8 @@ def test_s3_object_store_initialization(index_build_params, object_store_config)
         assert store.bucket == "test-bucket"
         assert store.max_retries == 3
         assert store.region == "us-west-2"
-        assert store.transfer_config.multipart_chunksize == 10 * 1024 * 1024
-        assert store.transfer_config.max_concurrency == 4
+        assert store.transfer_config["multipart_chunksize"] == 10 * 1024 * 1024
+        assert store.transfer_config["max_concurrency"] == 4
         assert not store.debug
 
 
@@ -102,17 +103,35 @@ def test_s3_object_store_initialization_debug_config(index_build_params):
             assert store.debug
 
 
-def test_create_transfer_config(s3_object_store):
+def test_create_custom_config(index_build_params):
     custom_config = {
-        "multipart_chunksize": 20 * 1024 * 1024,
-        "max_concurrency": 8,
-        "invalid_param": "value",  # Should be ignored
+        "retries": 3,
+        "region": "us-west-2",
+        "debug": False,
+        "transfer_config": {
+            "multipart_chunksize": 20 * 1024 * 1024,
+            "max_concurrency": 8,
+            "param": "value",
+        },
+        "download_args": {"ChecksumMode": "DISABLED", "param": "value"},
+        "upload_args": {"ChecksumAlgorithm": "SHA1", "param": "value"},
     }
 
-    config = s3_object_store._create_transfer_config(custom_config)
-    assert config.multipart_chunksize == 20 * 1024 * 1024
-    assert config.max_concurrency == 8
-    assert "invalid_param" not in config.__dict__
+    with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
+        store = S3ObjectStore(index_build_params, custom_config)
+        assert store.max_retries == 3
+        assert store.region == "us-west-2"
+        assert not store.debug
+        assert store.transfer_config["multipart_chunksize"] == 20 * 1024 * 1024
+        assert store.transfer_config["max_concurrency"] == 8
+        assert store.download_args["ChecksumMode"] == "DISABLED"
+        assert store.upload_args["ChecksumAlgorithm"] == "SHA1"
+
+        # In production, if boto3 does not support 'param', it will throw an exception
+        # So, no need for the object store client to also validate the params, during construction
+        assert "param" in store.transfer_config
+        assert "param" in store.download_args
+        assert "param" in store.upload_args
 
 
 def test_read_blob_success(index_build_params, object_store_config, bytes_buffer):
@@ -121,12 +140,26 @@ def test_read_blob_success(index_build_params, object_store_config, bytes_buffer
         store.s3_client.download_fileobj = Mock()
 
         store.read_blob("test/path", bytes_buffer)
-        store.s3_client.download_fileobj.assert_called_once_with(
+        store.s3_client.download_fileobj.assert_called_once()
+        assert isinstance(
+            store.s3_client.download_fileobj.call_args.kwargs["Config"], TransferConfig
+        )
+        # validate a transfer config parameter matches the object_store_config parameter
+        assert (
+            store.s3_client.download_fileobj.call_args.kwargs["Config"].__dict__[
+                "max_concurrency"
+            ]
+            == store.transfer_config["max_concurrency"]
+        )
+        assert store.s3_client.download_fileobj.call_args.kwargs["Callback"] is None
+        assert (
+            store.s3_client.download_fileobj.call_args.kwargs["ExtraArgs"]
+            == store.download_args
+        )
+        assert store.s3_client.download_fileobj.call_args.args == (
             store.bucket,
             "test/path",
             bytes_buffer,
-            Config=store.transfer_config,
-            Callback=None,
         )
 
 
@@ -149,7 +182,9 @@ def test_read_blob_with_debug(index_build_params, object_store_config, bytes_buf
         assert store._read_progress == 150
 
 
-def test_read_blob_failure(index_build_params, object_store_config, bytes_buffer):
+def test_read_blob_client_error_failure(
+    index_build_params, object_store_config, bytes_buffer
+):
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
         store = S3ObjectStore(index_build_params, object_store_config)
         error = ClientError(
@@ -161,18 +196,46 @@ def test_read_blob_failure(index_build_params, object_store_config, bytes_buffer
             store.read_blob("test/path", bytes_buffer)
 
 
+def test_read_blob_type_error_failure(
+    index_build_params, object_store_config, bytes_buffer
+):
+    with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
+        store = S3ObjectStore(index_build_params, object_store_config)
+        error = TypeError(
+            "TransferConfig.__init__() got an unexpected keyword argument"
+        )
+        store.s3_client.upload_file.side_effect = error
+        store.s3_client.download_fileobj.side_effect = error
+        with pytest.raises(BlobError):
+            store.read_blob("test/path", bytes_buffer)
+
+
 def test_write_blob_success(index_build_params, object_store_config):
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
         store = S3ObjectStore(index_build_params, object_store_config)
         store.s3_client.upload_file = Mock()
         store.write_blob("local/path", "remote/path")
 
-        store.s3_client.upload_file.assert_called_once_with(
+        store.s3_client.upload_file.assert_called_once()
+        assert isinstance(
+            store.s3_client.upload_file.call_args.kwargs["Config"], TransferConfig
+        )
+        # validate a transfer config parameter matches the object_store_config parameter
+        assert (
+            store.s3_client.upload_file.call_args.kwargs["Config"].__dict__[
+                "max_concurrency"
+            ]
+            == store.transfer_config["max_concurrency"]
+        )
+        assert store.s3_client.upload_file.call_args.kwargs["Callback"] is None
+        assert (
+            store.s3_client.upload_file.call_args.kwargs["ExtraArgs"]
+            == store.upload_args
+        )
+        assert store.s3_client.upload_file.call_args.args == (
             "local/path",
             store.bucket,
             "remote/path",
-            Config=store.transfer_config,
-            Callback=None,
         )
 
 
@@ -195,12 +258,23 @@ def test_write_blob_with_debug(index_build_params, object_store_config):
         assert store._write_progress == 150
 
 
-def test_write_blob_failure(index_build_params, object_store_config):
+def test_write_blob_client_error_failure(index_build_params, object_store_config):
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
         store = S3ObjectStore(index_build_params, object_store_config)
         error = ClientError(
             {"Error": {"Code": "LimitExceededException", "Message": "Limit Exceeded"}},
             "UploadFile",
+        )
+        store.s3_client.upload_file.side_effect = error
+        with pytest.raises(BlobError):
+            store.write_blob("local/path", "remote/path")
+
+
+def test_write_blob_type_error_failure(index_build_params, object_store_config):
+    with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
+        store = S3ObjectStore(index_build_params, object_store_config)
+        error = TypeError(
+            "TransferConfig.__init__() got an unexpected keyword argument"
         )
         store.s3_client.upload_file.side_effect = error
         with pytest.raises(BlobError):
