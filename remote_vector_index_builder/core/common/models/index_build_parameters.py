@@ -18,16 +18,10 @@ class DataType(str, Enum):
     """Supported data types for vector values.
 
     Attributes:
-        FLOAT32: 32-bit floating point values
-        FLOAT16: 16-bit floating point values
-        BYTE: 8-bit integer values
-        BINARY: Binary data format
+        FLOAT: 32-bit floating point values
     """
 
-    FLOAT32 = "fp32"
-    FLOAT16 = "fp16"
-    BYTE = "byte"
-    BINARY = "binary"
+    FLOAT = "float"
 
 
 class SpaceType(str, Enum):
@@ -35,19 +29,11 @@ class SpaceType(str, Enum):
 
     Attributes:
         L2: Euclidean distance
-        COSINESIMIL: Cosine similarity
-        L1: Manhattan distance
-        LINF: Chebyshev distance
         INNERPRODUCT: Dot product similarity
-        HAMMING: Hamming distance for binary vectors
     """
 
     L2 = "l2"
-    COSINESIMIL = "cosinesimil"
-    L1 = "l1"
-    LINF = "linf"
     INNERPRODUCT = "innerproduct"
-    HAMMING = "hamming"
 
 
 class Algorithm(str, Enum):
@@ -145,7 +131,7 @@ class IndexBuildParameters(BaseModel):
     tenant_id: str = ""
     dimension: int = Field(gt=0)
     doc_count: int = Field(gt=0)
-    data_type: DataType = DataType.FLOAT32
+    data_type: DataType = DataType.FLOAT
     engine: Engine = Engine.FAISS
     index_parameters: IndexParameters = Field(default_factory=IndexParameters)
     model_config = ConfigDict(extra="forbid")

@@ -47,10 +47,7 @@ def test_free_vectors_space(vectors_dataset):
 @pytest.mark.parametrize(
     "dtype, expected",
     [
-        (DataType.FLOAT32, "<f4"),
-        (DataType.FLOAT16, "<f2"),
-        (DataType.BYTE, "<i1"),
-        (DataType.BINARY, "<i1"),
+        (DataType.FLOAT, "<f4"),
     ],
 )
 def test_get_numpy_dtype_valid(dtype, expected):
@@ -73,19 +70,13 @@ def test_check_dimensions_invalid():
         VectorsDataset.check_dimensions(vectors, 10)
 
 
-@pytest.mark.parametrize(
-    "vector_dtype", [DataType.FLOAT32, DataType.FLOAT16, DataType.BYTE, DataType.BINARY]
-)
+@pytest.mark.parametrize("vector_dtype", [DataType.FLOAT])
 def test_parse_valid_data(vector_dtype):
     # Prepare test data
     dimension = 3
     doc_count = 2
 
     arr = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
-    if vector_dtype == DataType.BYTE:
-        arr = [[1, 2, 3], [4, 5, 6]]
-    elif vector_dtype == DataType.BINARY:
-        arr = [[0, 0, 0], [1, 1, 1]]
 
     test_vectors = np.array(arr, dtype=VectorsDataset.get_numpy_dtype(vector_dtype))
     test_doc_ids = np.array([1, 2], dtype="<i4")
@@ -125,7 +116,7 @@ def test_parse_invalid_doc_count():
             doc_ids=doc_ids,
             dimension=2,
             doc_count=2,
-            vector_dtype=DataType.FLOAT32,
+            vector_dtype=DataType.FLOAT,
         )
         dataset.free_vectors_space()
         vectors.close()
@@ -141,7 +132,7 @@ def test_parse_invalid_vector_dimensions():
             doc_ids=doc_ids,
             dimension=3,  # Expecting 6 values (2*3), but only provided 4
             doc_count=2,
-            vector_dtype=DataType.FLOAT32,
+            vector_dtype=DataType.FLOAT,
         )
         dataset.free_vectors_space()
         vectors.close()
@@ -160,7 +151,7 @@ def test_parse_invalid_data():
                 doc_ids=doc_ids,
                 dimension=3,
                 doc_count=2,
-                vector_dtype=DataType.FLOAT32,
+                vector_dtype=DataType.FLOAT,
             )
             dataset.free_vectors_space()
             vectors.close()

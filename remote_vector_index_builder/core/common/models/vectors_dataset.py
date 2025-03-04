@@ -47,14 +47,8 @@ class VectorsDataset:
         Raises:
             UnsupportedVectorsDataTypeError: If the provided data type is not supported.
         """
-        if dtype == DataType.FLOAT32:
+        if dtype == DataType.FLOAT:
             return "<f4"
-        elif dtype == DataType.FLOAT16:
-            return "<f2"
-        elif dtype == DataType.BYTE:
-            return "<i1"
-        elif dtype == DataType.BINARY:
-            return "<i1"
         else:
             raise UnsupportedVectorsDataTypeError(f"Unsupported data type: {dtype}")
 

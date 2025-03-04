@@ -61,12 +61,15 @@ GET /_status/{job_id}
 Request Response:
 {
     "task_status" : "String", //RUNNING_INDEX_BUILD, FAILED_INDEX_BUILD, COMPLETED_INDEX_BUILD
-    "index_path" : "String" // Null if not completed
+    "file_name" : "String" 
     "error_message": "String"
 }
 ```
 
-Client can expect an error in “error_message” if task_status == `FAILED_INDEX_BUILD`.
+* Client can expect an error in `error_message` if `task_status` == `FAILED_INDEX_BUILD`.
+* If `task_status` == `COMPLETED_INDEX_BUILD`, then `file_name` is the name of the index file, located
+in the same root remote store path as the `vector_path`. 
+  * Otherwise, `file_name` is `null`. 
 
 
 #### Error codes

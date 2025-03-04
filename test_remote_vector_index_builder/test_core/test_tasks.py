@@ -15,6 +15,8 @@ from core.common.models.vectors_dataset import VectorsDataset
 from core.object_store.object_store import ObjectStore
 from core.tasks import create_vectors_dataset, upload_index
 
+DEFAULT_VECTOR_NAME = "vec"
+
 
 @pytest.fixture
 def mock_object_store():
@@ -41,11 +43,11 @@ def mock_vectors_dataset_parse():
 @pytest.fixture
 def index_build_params():
     return IndexBuildParameters(
-        vector_path="vec.knnvec",
+        vector_path=DEFAULT_VECTOR_NAME + ".knnvec",
         doc_id_path="doc.knndid",
         dimension=128,
         doc_count=1000,
-        data_type="fp32",
+        data_type="float",
         repository_type="s3",
         container_name="test-bucket",
     )
@@ -128,9 +130,9 @@ def test_successful_upload(
     mock_object_store_factory.assert_called_once_with(
         index_build_params, object_store_config
     )
-    mock_object_store.write_blob.assert_called_once_with(
-        local_path, index_build_params.vector_path + local_path
-    )
+
+    remote_path = DEFAULT_VECTOR_NAME + "." + index_build_params.engine
+    mock_object_store.write_blob.assert_called_once_with(local_path, remote_path)
 
 
 def test_upload_blob_error_handling(

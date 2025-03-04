@@ -113,8 +113,10 @@ def upload_index(
     Note:
         - Creates an object store instance based on the provided configuration
         - Uses the vector_path from index_build_params to determine the upload destination
+            - The upload destination has the same file path as the vector_path
+              except for the file extension. The file extension is based on the engine
         - The index_local_path must exist and be readable
-        - The function assumes index_build_params has been validated by Pydantic
+        - The function assumes index_build_params has already been validated by Pydantic
 
     Raises:
         BlobError: If there are issues uploading to the object store
@@ -124,7 +126,10 @@ def upload_index(
         index_build_params, object_store_config
     )
 
-    # vector_path is unique for each index build request, so we can simply append the local path
-    index_remote_path = index_build_params.vector_path + index_local_path
+    # vector path has already been validated that it ends with '.knnvec' by pydantic regex
+    vector_root_path = ".".join(index_build_params.vector_path.split(".")[0:-1])
+
+    # the index path is in the same root location as the vector path
+    index_remote_path = vector_root_path + "." + index_build_params.engine
 
     object_store.write_blob(index_local_path, index_remote_path)
