@@ -1,11 +1,14 @@
 FROM rchitale7/remote-index-build-service:faiss-base
 
-WORKDIR /app
+WORKDIR /remote_vector_index_builder
 
-COPY core/requirements.txt /app/requirements.txt
+COPY core/requirements.txt /remote_vector_index_builder/core/requirements.txt
 
-RUN pip install --no-cache-dir --upgrade -r /app/requirements.txt
+RUN pip install --no-cache-dir --upgrade -r /remote_vector_index_builder/core/requirements.txt
 
-COPY . /app
+COPY . /remote_vector_index_builder
 
-CMD ["python", "test_imports.py"]
+ENV PYTHONPATH='${PYTHONPATH}:/remote_vector_index_builder'
+
+RUN ["python", "test_imports.py"]
+CMD ["python", "core/main.py"]
