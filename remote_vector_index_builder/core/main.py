@@ -10,6 +10,7 @@ import time
 from core import create_vectors_dataset, upload_index
 import logging
 from io import BytesIO
+import os
 
 
 def configure_logging(log_level):
@@ -21,13 +22,19 @@ def configure_logging(log_level):
 
 
 def main():
+
+    knn_vec = os.environ.get('KNN_VEC')
+    knn_did = os.environ.get('KNN_DID')
+    dimension = os.environ.get('DIMENSION')
+    doc_count = os.environ.get('DOC_COUNT')
+
     index_build_params = {
         "repository_type": "s3",
         "container_name": "testbucket-rchital",
-        "vector_path": "target_field__53.knnvec",
-        "doc_id_path": "target_field__53.knndid",
-        "dimension": 1000,
-        "doc_count": 76800,
+        "vector_path": knn_vec,
+        "doc_id_path": knn_did,
+        "dimension": dimension,
+        "doc_count": doc_count,
     }
 
     vector_bytes_buffer = BytesIO()
