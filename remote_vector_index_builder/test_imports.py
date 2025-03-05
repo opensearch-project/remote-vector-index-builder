@@ -4,11 +4,11 @@
 # The OpenSearch Contributors require contributions made to
 # this file be licensed under the Apache-2.0 license or a
 # compatible open source license.
-
 def test_imports():
     try:
         from core import create_vectors_dataset
         from core import upload_index
+        import faiss
         # etc.
         print("All imports successful!")
         return 0
