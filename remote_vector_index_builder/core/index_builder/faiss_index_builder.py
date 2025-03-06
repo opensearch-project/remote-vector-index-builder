@@ -5,6 +5,7 @@
 # this file be licensed under the Apache-2.0 license or a
 # compatible open source license.
 
+import faiss
 from core.common.models import (
     GPUIndexBuildConfig,
     GPUIndexCagraConfig,
@@ -14,7 +15,6 @@ from core.common.models import (
 from core.index_builder.faiss_index_config_builder import (
     FaissIndexConfigBuilder,
 )
-import faiss
 from core.common.models.index_build_parameters import (
     IndexBuildParameters,
 )
@@ -51,7 +51,7 @@ class FaissIndexBuilder:
         vectorsDataset: VectorsDataset,
         dataset_dimension: int,
         faissGPUIndexCagraConfig: faiss.GpuIndexCagraConfig,
-        space_type: SpaceType = SpaceType.L2,
+        space_type: SpaceType,
     ):
         """
         Method to create a GPU Index using the provided configuration

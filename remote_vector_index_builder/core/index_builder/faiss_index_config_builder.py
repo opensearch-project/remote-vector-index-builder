@@ -55,9 +55,6 @@ class FaissIndexConfigBuilder:
             - Memory allocation strategy
         """
 
-        if not self._ivf_pq_build_config:
-            self._ivf_pq_build_config = IVFPQBuildCagraConfig()
-
         config = faiss.IVFPQBuildCagraConfig()
         config.kmeans_trainset_fraction = (
             self._ivf_pq_build_config.kmeans_trainset_fraction
@@ -79,8 +76,6 @@ class FaissIndexConfigBuilder:
             A configured FAISS IVFPQSearchCagraConfig object with search parameters for:
             - n_probs The number of clusters to search
         """
-        if not self._ivf_pq_search_config:
-            self._ivf_pq_search_config = IVFPQSearchCagraConfig()
 
         config = faiss.IVFPQSearchCagraConfig()
         config.n_probes = self._ivf_pq_search_config.n_probes

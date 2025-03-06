@@ -23,4 +23,4 @@ class GPUIndexBuildConfig:
     )
 
     # type of metric the gpuIndex is created with
-    metric: SpaceType = SpaceType.L2
+    metric: SpaceType

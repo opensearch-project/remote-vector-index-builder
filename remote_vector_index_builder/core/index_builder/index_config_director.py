@@ -1,11 +1,6 @@
 from typing import Dict, Any
-from core.common.models import (
-    GPUIndexBuildConfig,
-    SpaceType,
-)
-from core.index_builder.index_config_builder import (
-    IndexConfigBuilder,
-)
+from core.common.models import GPUIndexBuildConfig
+from core.index_builder.index_config_builder import IndexConfigBuilder
 
 
 class IndexConfigDirector:
@@ -39,6 +34,6 @@ class IndexConfigDirector:
         return (
             self._builder.set_hnsw_config(config_params.get("hnsw_config", {}))
             .set_gpu_config(config_params.get("gpu_config", {}))
-            .set_metric(config_params.get("metric", SpaceType.L2))
+            .set_metric(config_params.get("metric"))
             .build()
         )
