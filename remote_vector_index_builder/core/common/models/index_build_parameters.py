@@ -63,6 +63,8 @@ class AlgorithmParameters(BaseModel):
         ef_construction (int): Size of the dynamic candidate list for constructing
             the HNSW graph. Higher values lead to better quality but slower
             index construction. Defaults to 100.
+        ef_search (int): The size of the dynamic list used during k-NN searches.
+            Higher values result in more accurate but slower searches.
         m (int): Number of bi-directional links created for every new element
             during construction. Higher values lead to better search speed but
             more memory consumption. Defaults to 16.
@@ -71,6 +73,7 @@ class AlgorithmParameters(BaseModel):
     """
 
     ef_construction: int = 100
+    ef_search: int = 100
     m: int = 16
     model_config = ConfigDict(extra="allow")
 
