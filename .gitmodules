@@ -1,0 +1,3 @@
+[submodule "custom-faiss-installed-image/faiss"]
+	path = custom-faiss-installed-image/faiss
+	url = https://github.com/facebookresearch/faiss.git
