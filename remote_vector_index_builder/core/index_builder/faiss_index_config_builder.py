@@ -1,4 +1,3 @@
-from typing import Optional
 import faiss
 from core.common.models import (
     GPUIndexCagraConfig,
@@ -23,9 +22,9 @@ class FaissIndexConfigBuilder:
         Initialize the builder with default configuration values set to None.
         These configurations will be set later using builder methods.
         """
-        self._gpu_config: Optional[GPUIndexCagraConfig] = None
-        self._ivf_pq_build_config: Optional[IVFPQBuildCagraConfig] = None
-        self._ivf_pq_search_config: Optional[IVFPQSearchCagraConfig] = None
+        self._gpu_config: GPUIndexCagraConfig
+        self._ivf_pq_build_config: IVFPQBuildCagraConfig
+        self._ivf_pq_search_config: IVFPQSearchCagraConfig
 
     def _configure_build_algo(self, graph_build_algo: GraphBuildAlgo):
         """

@@ -15,12 +15,12 @@ from .index_hnsw_cagra_config import IndexHNSWCagraConfig
 
 @dataclass
 class GPUIndexBuildConfig:
+    # type of metric the gpuIndex is created with
+    metric: SpaceType
+
     index_hnsw_cagra_config: IndexHNSWCagraConfig = field(
         default_factory=IndexHNSWCagraConfig
     )
     gpu_index_cagra_config: GPUIndexCagraConfig = field(
         default_factory=GPUIndexCagraConfig
     )
-
-    # type of metric the gpuIndex is created with
-    metric: SpaceType
