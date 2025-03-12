@@ -6,22 +6,23 @@
 # compatible open source license.
 
 from .index_build_parameters import SpaceType
-from .index_builder.gpu_index_cagra_config import (
-    GPUIndexCagraConfig,
-    IVFPQSearchCagraConfig,
-    IVFPQBuildCagraConfig,
-)
-from .index_builder.index_hnsw_cagra_config import IndexHNSWCagraConfig
-from .index_builder.gpu_index_build_config import GPUIndexBuildConfig
 
 from .index_builder.graph_build_algo import GraphBuildAlgo
 
+from .vectors_dataset import VectorsDataset
+from .index_build_parameters import IndexBuildParameters
+from .index_builder.gpu_index_config import GPUIndexConfig
+from .index_builder.cpu_index_config import CPUIndexConfig
+from .index_builder.response.gpu_index_response import GPUIndexResponse
+from .index_builder.response.cpu_index_response import CPUIndexResponse
+
 __all__ = [
     "SpaceType",
-    "GPUIndexCagraConfig",
-    "IVFPQSearchCagraConfig",
-    "IVFPQBuildCagraConfig",
-    "IndexHNSWCagraConfig",
-    "GPUIndexBuildConfig",
     "GraphBuildAlgo",
+    "IndexBuildParameters",
+    "VectorsDataset",
+    "GPUIndexConfig",
+    "CPUIndexConfig",
+    "GPUIndexResponse",
+    "CPUIndexResponse",
 ]

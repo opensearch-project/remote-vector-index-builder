@@ -5,10 +5,12 @@
 # this file be licensed under the Apache-2.0 license or a
 # compatible open source license.
 
+from abc import ABC
 from dataclasses import dataclass
 
 
 @dataclass
-class IVFPQSearchCagraConfig:
-    # The number of clusters to search.
-    n_probes: int = 30
+class CPUIndexConfig(ABC):
+    """Base class for CPU Index Configuration"""
+
+    pass
