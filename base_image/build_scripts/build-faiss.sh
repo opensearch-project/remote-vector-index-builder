@@ -9,6 +9,8 @@ printenv
 
 cmake --version
 
+# Ref: https://github.com/facebookresearch/faiss/blob/main/INSTALL.md#step-1-invoking-cmake
+# Step 1: Invoke CMake
 echo "Running cmake build"
 pwd
 cmake -B build \
@@ -24,11 +26,17 @@ cmake -B build \
     -DCUDAToolkit_ROOT="/usr/local/cuda/lib64" \
     .
 
+# Step 2 : Invoke Make
+# This builds the C++ library (libfaiss.a by default, and libfaiss.so if -DBUILD_SHARED_LIBS=ON was passed to CMake).
+# Also Builds the Python bindings(swigfaiss)
 echo "Running make command"
 
+# The -j option enables parallel compilation of multiple units, leading to a faster build,
+# but increasing the chances of running out of memory,
+# in which case it is recommended to set the -j option to a fixed value (such as -j6).
 make -C build -j6 faiss swigfaiss
 
-# Create Python FAISS bindings
+# Step 3: Generate and install python packages
 cd build/faiss/python && python3 setup.py build
 
 # make faiss python bindings available for use
