@@ -12,7 +12,8 @@ permissions:
 jobs:
   build-and-publish-snapshot:
     name: Build and Publish Remote-Vector-Index-Builder Snaphot Image
-    runs-on: [self-hosted, remote-vector-g62xlarge]
+    runs-on:
+      group: remote-vector-g62xlarge
 
     steps:
       # https://github.com/actions/checkout?tab=readme-ov-file#usage
