@@ -12,7 +12,6 @@ permissions:
 jobs:
   build-and-publish-snapshot:
     name: Build and Publish Remote-Vector-Index-Builder Snaphot Image
-    if: github.repository == 'opensearch-project/remote-vector-index-builder'
     runs-on: [self-hosted, g62xlarge]
       group: remote-vector-g62xlarge
 
