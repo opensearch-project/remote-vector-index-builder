@@ -11,8 +11,9 @@ permissions:
 
 jobs:
   build-and-publish-snapshot:
+    if: github.repository == 'opensearch-project/opensearch-migrations'
     name: Build and Publish Remote-Vector-Index-Builder Snaphot Image
-    runs-on:
+    runs-on: [self-hosted, g62xlarge]
       group: remote-vector-g62xlarge
 
     steps:
