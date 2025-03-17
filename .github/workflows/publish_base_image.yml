@@ -15,18 +15,19 @@ jobs:
     if: github.repository == 'opensearch-project/remote-vector-index-builder'
     runs-on:
       group: remote-vector-g62xlarge
+      labels: g62xlarge
 
     steps:
       # https://github.com/actions/checkout?tab=readme-ov-file#usage
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-            submodules: 'recursive'
+      #- name: Checkout code
+      #  uses: actions/checkout@v4
+      #  with:
+      #      submodules: 'recursive'
       
-      - name: Build Docker Image
-        run : |
-            docker build  -f ./base_image/build_scripts/Dockerfile . -t opensearchstaging/remote-vector-index-builder:base-1.0.0
-            docker tag opensearchstaging/remote-vector-index-builder:base-1.0.0 opensearchstaging/remote-vector-index-builder:base-latest
+      #- name: Build Docker Image
+      #  run : |
+      #      docker build  -f ./base_image/build_scripts/Dockerfile . -t opensearchstaging/remote-vector-index-builder:base-1.0.0
+      #      docker tag opensearchstaging/remote-vector-index-builder:base-1.0.0 opensearchstaging/remote-vector-index-builder:base-latest
     
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
