@@ -1,7 +1,7 @@
 FROM nvidia/cuda:12.8.1-base-ubuntu24.04
 
 # Install base utilities and also the dependencies for faiss
-RUN apt-get update \
+RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y build-essential gfortran libblas-dev libopenblas-dev zlib1g zlib1g-dev git tmux libssl-dev \
     && apt-get install -y wget \
     && apt-get clean \
