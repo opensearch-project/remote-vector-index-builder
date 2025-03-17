@@ -1,4 +1,4 @@
-name: Build and Publish Remote-Vector-Index-Builder Snapshot
+name: Build and Publish Remote-Vector-Index-Builder Snapshot to Docker
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   build-and-publish-snapshot:
     name: Build and Publish Remote-Vector-Index-Builder Snaphot Image
-    runs-on: [self-hosted, remote-vector-g62xlarge, gpu, X64, Linux]
+    runs-on: [self-hosted, remote-vector-g62xlarge]
 
     steps:
       # https://github.com/actions/checkout?tab=readme-ov-file#usage
