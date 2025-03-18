@@ -34,7 +34,6 @@ def get_cpus(factor: float) -> int:
     Returns:
         int: The number of CPUs that will be used for s3 upload or download
 
-    Note: The factor may differ for uploads and downloads, based on benchmarking data
     The cpu count is rounded down to the nearest integer
     """
 
@@ -42,7 +41,7 @@ def get_cpus(factor: float) -> int:
     # if it is none, then default to 1 thread
     cpu_count = os.cpu_count()
     if cpu_count:
-        return math.floor(cpu_count * factor)
+        return max(1, math.floor(cpu_count * factor))
     return 1
 
 
