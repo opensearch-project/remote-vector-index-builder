@@ -5,12 +5,9 @@
 # this file be licensed under the Apache-2.0 license or a
 # compatible open source license.
 
-from abc import ABC
-from dataclasses import dataclass
+from enum import Enum
 
 
-@dataclass
-class CPUIndexConfig(ABC):
-    """Base class for CPU Index Configuration"""
-
-    pass
+class CagraGraphBuildAlgo(Enum):
+    IVF_PQ = "IVF_PQ"
+    NN_DESCENT = "NN_DESCENT"

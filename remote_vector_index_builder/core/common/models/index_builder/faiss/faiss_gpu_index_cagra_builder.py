@@ -7,18 +7,24 @@
 
 import faiss
 from typing import Dict, Any
-from dataclasses import dataclass, field
+from dataclasses import field
 
-from core.common.models import GraphBuildAlgo
-from core.common.models import GPUIndexConfig
+from core.common.models import (
+    CagraGraphBuildAlgo,
+    FaissGPUIndexBuilder,
+    FaissIndexIDMap,
+    VectorsDataset,
+    SpaceType,
+)
+from core.index_builder.index_builder_utils import configure_metric
 from .ivf_pq_build_cagra_config import IVFPQBuildCagraConfig
 from .ivf_pq_search_cagra_config import IVFPQSearchCagraConfig
 
 
-@dataclass
-class GPUIndexCagraConfig(GPUIndexConfig):
+class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
     """
     Configuration class for Faiss GPU Index Cagra
+    Also exposes a method to build the gpu index from the CAGRA configuration
     """
 
     # Degree of input graph for pruning
@@ -26,12 +32,9 @@ class GPUIndexCagraConfig(GPUIndexConfig):
     # Degree of output graph
     graph_degree: int = 64
     # ANN Algorithm to build the knn graph
-    graph_build_algo: GraphBuildAlgo = GraphBuildAlgo.IVF_PQ
+    graph_build_algo: CagraGraphBuildAlgo = CagraGraphBuildAlgo.IVF_PQ
 
     store_dataset: bool = True
-
-    # GPU Device on which the index is resident
-    device: int = 0
 
     ivf_pq_build_config: IVFPQBuildCagraConfig = field(
         default_factory=IVFPQBuildCagraConfig
@@ -52,12 +55,12 @@ class GPUIndexCagraConfig(GPUIndexConfig):
             The corresponding FAISS graph building algorithm implementation
             Defaults to IVF_PQ if the specified algorithm is not found
         """
-        switcher = {GraphBuildAlgo.IVF_PQ: faiss.graph_build_algo_IVF_PQ}
+        switcher = {CagraGraphBuildAlgo.IVF_PQ: faiss.graph_build_algo_IVF_PQ}
         return switcher.get(self.graph_build_algo, faiss.graph_build_algo_IVF_PQ)
 
     def _validate_params(params: Dict[str, Any]) -> None:
         """
-        Pre-validates GPUIndexCagraConfig configuration parameters before object creation.
+        Pre-validates FaissGPUIndexCagraBuilder configuration parameters before object creation.
 
         Args:
             params: Dictionary of parameters to validate
@@ -68,19 +71,19 @@ class GPUIndexCagraConfig(GPUIndexConfig):
         if "intermediate_graph_degree" in params:
             if params["intermediate_graph_degree"] <= 0:
                 raise ValueError(
-                    "GPUIndexCagraConfig param: intermediate_graph_degree must be positive"
+                    "FaissGPUIndexCagraBuilder param: intermediate_graph_degree must be positive"
                 )
 
         if "graph_degree" in params:
             if params["graph_degree"] <= 0:
                 raise ValueError(
-                    "GPUIndexCagraConfig param: graph_degree must be positive"
+                    "FaissGPUIndexCagraBuilder param: graph_degree must be positive"
                 )
 
         if "device" in params:
             if params["device"] < 0:
                 raise ValueError(
-                    "GPUIndexCagraConfig param: device must be non-negative"
+                    "FaissGPUIndexCagraBuilder param: device must be non-negative"
                 )
 
     def to_faiss_config(self) -> faiss.GpuIndexCagraConfig:
@@ -108,7 +111,7 @@ class GPUIndexCagraConfig(GPUIndexConfig):
         # Set build algorithm
         gpu_index_cagra_config.build_algo = self._configure_build_algo()
 
-        if self.graph_build_algo == GraphBuildAlgo.IVF_PQ:
+        if self.graph_build_algo == CagraGraphBuildAlgo.IVF_PQ:
             gpu_index_cagra_config.ivf_pq_build_params = (
                 self.ivf_pq_build_config.to_faiss_config()
             )
@@ -119,15 +122,17 @@ class GPUIndexCagraConfig(GPUIndexConfig):
         return gpu_index_cagra_config
 
     @classmethod
-    def from_dict(cls, params: Dict[str, Any] | None = None) -> "GPUIndexCagraConfig":
+    def from_dict(
+        cls, params: Dict[str, Any] | None = None
+    ) -> "FaissGPUIndexCagraBuilder":
         """
-        Constructs a GPUIndexCagraConfig object from a dictionary of parameters.
+        Constructs a FaissGPUIndexCagraBuilder object from a dictionary of parameters.
 
         Args:
             params: A dictionary containing the configuration parameters
 
         Returns:
-            A GPUIndexCagraConfig object with the specified configuration
+            A FaissGPUIndexCagraBuilder object with the specified configuration
         """
         if not params:
             return cls()
@@ -142,7 +147,7 @@ class GPUIndexCagraConfig(GPUIndexConfig):
 
         # Extract and configure graph build algo enum
         if "graph_build_algo" in params:
-            params["graph_build_algo"] = GraphBuildAlgo(params["graph_build_algo"])
+            params["graph_build_algo"] = CagraGraphBuildAlgo(params["graph_build_algo"])
 
         # Validate parameters
         cls._validate_params(params)
@@ -151,5 +156,59 @@ class GPUIndexCagraConfig(GPUIndexConfig):
         return cls(
             **params,
             ivf_pq_build_config=ivf_pq_build_config,
-            ivf_pq_search_config=ivf_pq_search_config
+            ivf_pq_search_config=ivf_pq_search_config,
         )
+
+    def build_gpu_index(
+        self,
+        vectorsDataset: VectorsDataset,
+        dataset_dimension: int,
+        space_type: SpaceType,
+    ) -> FaissIndexIDMap:
+        """
+        Method to create a GPU Cagra Index to build a GPU Index for the specified vectors dataset
+
+        Args:
+        vectorsDataset (VectorsDataset): VectorsDataset object containing vectors and document IDs
+        dataset_dimension (int): Dimension of the vectors
+        space_type (SpaceType, optional): Distance metric to be used (defaults to L2)
+
+        Returns:
+        FaissIndexIDMap: A data model containing the created GPU Index and dataset Vectors, Ids
+        """
+        faiss_gpu_index = None
+        faiss_id_map_index = None
+        faiss_gpu_index_config = None
+
+        # Create a faiis equivalent version of gpu index build config
+        try:
+            faiss_gpu_index_config = self.to_faiss_config()
+        except Exception as e:
+            raise Exception(f"Failed to create faiss GPU index config: {str(e)}") from e
+
+        try:
+            gpu_resources = faiss.StandardGpuResources()
+
+            # Configure the distance metric
+            metric = configure_metric(space_type)
+
+            # Create GPU CAGRA index with specified configuration
+            faiss_gpu_index = faiss.GpuIndexCagra(
+                gpu_resources, dataset_dimension, metric, faiss_gpu_index_config
+            )
+
+            # Create ID mapping layer to preserve document IDs
+            faiss_id_map_index = faiss.IndexIDMap(faiss_gpu_index)
+            # Add vectors and their corresponding IDs to the index
+            faiss_id_map_index.add_with_ids(
+                vectorsDataset.vectors, vectorsDataset.doc_ids
+            )
+
+            return FaissIndexIDMap(index_id_map=faiss_id_map_index)
+        except Exception as e:
+            if faiss_gpu_index is not None:
+                faiss_gpu_index.thisown = True
+                del faiss_gpu_index
+            if faiss_id_map_index is not None:
+                del faiss_id_map_index
+            raise Exception(f"Failed to create faiss GPU index: {str(e)}") from e
