@@ -9,9 +9,15 @@ from .index_build_parameters import SpaceType
 
 from .index_builder.cagra_graph_build_algo import CagraGraphBuildAlgo
 
-from .vectors_dataset import VectorsDataset
+
 from .index_build_parameters import IndexBuildParameters
-from .index_builder.response.faiss_build_index_output import FaissBuildIndexOutput
+from .vectors_dataset import VectorsDataset
+from .index_builder.response.faiss_gpu_build_index_output import (
+    FaissGpuBuildIndexOutput,
+)
+from .index_builder.response.faiss_cpu_build_index_output import (
+    FaissCpuBuildIndexOutput,
+)
 from .index_builder.faiss_gpu_index_builder import FaissGPUIndexBuilder
 from .index_builder.faiss_cpu_index_builder import FaissCPUIndexBuilder
 
@@ -20,7 +26,8 @@ __all__ = [
     "CagraGraphBuildAlgo",
     "IndexBuildParameters",
     "VectorsDataset",
-    "FaissBuildIndexOutput",
+    "FaissGpuBuildIndexOutput",
+    "FaissCpuBuildIndexOutput",
     "FaissGPUIndexBuilder",
     "FaissCPUIndexBuilder",
 ]

@@ -7,7 +7,11 @@
 
 from abc import ABC, abstractmethod
 
-from core.common.models import SpaceType, VectorsDataset, FaissBuildIndexOutput
+from core.common.models import (
+    SpaceType,
+    VectorsDataset,
+    FaissGpuBuildIndexOutput,
+)
 
 
 class FaissGPUIndexBuilder(ABC):
@@ -25,7 +29,7 @@ class FaissGPUIndexBuilder(ABC):
         vectorsDataset: VectorsDataset,
         dataset_dimension: int,
         space_type: SpaceType,
-    ) -> FaissBuildIndexOutput:
+    ) -> FaissGpuBuildIndexOutput:
         """
         Implement this abstract method to build a GPU Index for the specified vectors dataset
 
@@ -35,7 +39,7 @@ class FaissGPUIndexBuilder(ABC):
         space_type (SpaceType, optional): Distance metric to be used (defaults to L2)
 
         Returns:
-        FaissBuildIndexOutput: A data model containing the created GPU Faiss Index and dataset Vector Ids components
+        FaissGpuBuildIndexOutput: A data model containing the created GPU Faiss Index and dataset Vector Ids components
         """
 
         pass

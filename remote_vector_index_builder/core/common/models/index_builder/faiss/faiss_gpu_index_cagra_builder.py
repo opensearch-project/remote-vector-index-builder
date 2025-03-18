@@ -7,20 +7,21 @@
 
 import faiss
 from typing import Dict, Any
-from dataclasses import field
+from dataclasses import field, dataclass
 
 from core.common.models import (
     CagraGraphBuildAlgo,
-    FaissGPUIndexBuilder,
-    FaissBuildIndexOutput,
     VectorsDataset,
     SpaceType,
+    FaissGpuBuildIndexOutput,
+    FaissGPUIndexBuilder,
 )
 from core.index_builder.index_builder_utils import configure_metric
 from .ivf_pq_build_cagra_config import IVFPQBuildCagraConfig
 from .ivf_pq_search_cagra_config import IVFPQSearchCagraConfig
 
 
+@dataclass
 class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
     """
     Configuration class for Faiss GPU Index Cagra
@@ -167,7 +168,7 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
         vectorsDataset: VectorsDataset,
         dataset_dimension: int,
         space_type: SpaceType,
-    ) -> FaissBuildIndexOutput:
+    ) -> FaissGpuBuildIndexOutput:
         """
         Method to create a GPU Cagra Index to build a GPU Index for the specified vectors dataset
 
@@ -177,7 +178,7 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
         space_type (SpaceType, optional): Distance metric to be used (defaults to L2)
 
         Returns:
-        FaissBuildIndexOutput: A data model containing the created GPU Index and dataset Vectors, Ids
+        FaissGpuBuildIndexOutput: A data model containing the created GPU Index and dataset Vectors, Ids
         """
         faiss_gpu_index = None
         faiss_index_id_map = None
@@ -207,7 +208,9 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
                 vectorsDataset.vectors, vectorsDataset.doc_ids
             )
 
-            return FaissBuildIndexOutput(index_id_map=faiss_index_id_map)
+            return FaissGpuBuildIndexOutput(
+                gpu_index=faiss_gpu_index, index_id_map=faiss_index_id_map
+            )
         except Exception as e:
             if faiss_gpu_index is not None:
                 faiss_gpu_index.thisown = True
