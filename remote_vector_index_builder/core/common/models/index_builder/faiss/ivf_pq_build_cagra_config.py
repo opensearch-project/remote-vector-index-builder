@@ -51,7 +51,7 @@ class IVFPQBuildCagraConfig:
     # the algorithm always allocates the minimum amount of memory required to
     # store the given number of records. Set this flag to `true` if you prefer
     # to use as little GPU memory for the database as possible.
-    conservative_memory_allocation: bool = False
+    conservative_memory_allocation: bool = True
 
     @staticmethod
     def _validate_params(params: Dict[str, Any]) -> None:
@@ -79,6 +79,7 @@ class IVFPQBuildCagraConfig:
                 raise ValueError(
                     "IVFPQBuildCagraConfig param: kmeans_trainset_fraction must be between 0 and 1"
                 )
+        # Validation Ref: https://github.com/facebookresearch/faiss/blob/main/faiss/gpu/GpuIndexCagra.h#L67
         if "pq_bits" in params:
             if params["pq_bits"] not in [4, 5, 6, 7, 8]:
                 raise ValueError(

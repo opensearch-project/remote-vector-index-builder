@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 
 @dataclass
-class FaissIndexIDMap:
+class FaissBuildIndexOutput:
     """
     A data class that serves as a wrapper
     to hold the Faiss Index and dataset Vector Ids components
@@ -37,4 +37,4 @@ class FaissIndexIDMap:
                 self.index_id_map.own_fields = True
                 del self.index_id_map
         except Exception as e:
-            print(f"Error during cleanup of FaissGPUIndexResponse: {e}")
+            print(f"Error during cleanup of FaissBuildIndexOutput: {e}")

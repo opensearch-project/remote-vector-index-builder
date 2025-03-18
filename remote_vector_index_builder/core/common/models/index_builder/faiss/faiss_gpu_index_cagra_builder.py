@@ -12,7 +12,7 @@ from dataclasses import field
 from core.common.models import (
     CagraGraphBuildAlgo,
     FaissGPUIndexBuilder,
-    FaissIndexIDMap,
+    FaissBuildIndexOutput,
     VectorsDataset,
     SpaceType,
 )
@@ -28,13 +28,15 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
     """
 
     # Degree of input graph for pruning
-    intermediate_graph_degree: int = 128
+    intermediate_graph_degree: int = 64
     # Degree of output graph
-    graph_degree: int = 64
+    graph_degree: int = 32
     # ANN Algorithm to build the knn graph
     graph_build_algo: CagraGraphBuildAlgo = CagraGraphBuildAlgo.IVF_PQ
 
-    store_dataset: bool = True
+    store_dataset: bool = False
+
+    refine_rate: float = 2.0
 
     ivf_pq_build_config: IVFPQBuildCagraConfig = field(
         default_factory=IVFPQBuildCagraConfig
@@ -107,6 +109,7 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
         gpu_index_cagra_config.graph_degree = self.graph_degree
         gpu_index_cagra_config.store_dataset = self.store_dataset
         gpu_index_cagra_config.device = self.device
+        gpu_index_cagra_config.refine_rate = self.refine_rate
 
         # Set build algorithm
         gpu_index_cagra_config.build_algo = self._configure_build_algo()
@@ -164,7 +167,7 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
         vectorsDataset: VectorsDataset,
         dataset_dimension: int,
         space_type: SpaceType,
-    ) -> FaissIndexIDMap:
+    ) -> FaissBuildIndexOutput:
         """
         Method to create a GPU Cagra Index to build a GPU Index for the specified vectors dataset
 
@@ -174,10 +177,10 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
         space_type (SpaceType, optional): Distance metric to be used (defaults to L2)
 
         Returns:
-        FaissIndexIDMap: A data model containing the created GPU Index and dataset Vectors, Ids
+        FaissBuildIndexOutput: A data model containing the created GPU Index and dataset Vectors, Ids
         """
         faiss_gpu_index = None
-        faiss_id_map_index = None
+        faiss_index_id_map = None
         faiss_gpu_index_config = None
 
         # Create a faiis equivalent version of gpu index build config
@@ -198,17 +201,17 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
             )
 
             # Create ID mapping layer to preserve document IDs
-            faiss_id_map_index = faiss.IndexIDMap(faiss_gpu_index)
+            faiss_index_id_map = faiss.IndexIDMap(faiss_gpu_index)
             # Add vectors and their corresponding IDs to the index
-            faiss_id_map_index.add_with_ids(
+            faiss_index_id_map.add_with_ids(
                 vectorsDataset.vectors, vectorsDataset.doc_ids
             )
 
-            return FaissIndexIDMap(index_id_map=faiss_id_map_index)
+            return FaissBuildIndexOutput(index_id_map=faiss_index_id_map)
         except Exception as e:
             if faiss_gpu_index is not None:
                 faiss_gpu_index.thisown = True
                 del faiss_gpu_index
-            if faiss_id_map_index is not None:
-                del faiss_id_map_index
+            if faiss_index_id_map is not None:
+                del faiss_index_id_map
             raise Exception(f"Failed to create faiss GPU index: {str(e)}") from e

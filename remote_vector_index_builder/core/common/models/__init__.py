@@ -11,7 +11,7 @@ from .index_builder.cagra_graph_build_algo import CagraGraphBuildAlgo
 
 from .vectors_dataset import VectorsDataset
 from .index_build_parameters import IndexBuildParameters
-from .index_builder.response.faiss_index_id_map import FaissIndexIDMap
+from .index_builder.response.faiss_build_index_output import FaissBuildIndexOutput
 from .index_builder.faiss_gpu_index_builder import FaissGPUIndexBuilder
 from .index_builder.faiss_cpu_index_builder import FaissCPUIndexBuilder
 
@@ -20,7 +20,7 @@ __all__ = [
     "CagraGraphBuildAlgo",
     "IndexBuildParameters",
     "VectorsDataset",
-    "FaissIndexIDMap",
+    "FaissBuildIndexOutput",
     "FaissGPUIndexBuilder",
     "FaissCPUIndexBuilder",
 ]

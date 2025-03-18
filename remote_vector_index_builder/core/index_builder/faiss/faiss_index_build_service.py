@@ -50,7 +50,7 @@ class FaissIndexBuildService(IndexBuildService):
         """
         faiss_gpu_index_cagra_builder = None
         faiss_index_hnsw_cagra_builder = None
-        gpu_faiss_index_id_map = None
+        gpu_faiss_build_index_output = None
 
         try:
             # Set number of threads for parallel processing
@@ -71,10 +71,12 @@ class FaissIndexBuildService(IndexBuildService):
             )
 
             # Step 1b: create a GPU Index from the faiss config and vector dataset
-            gpu_faiss_index_id_map = faiss_gpu_index_cagra_builder.build_gpu_index(
-                vectors_dataset,
-                index_build_parameters.dimension,
-                index_build_parameters.index_parameters.space_type,
+            gpu_faiss_build_index_output = (
+                faiss_gpu_index_cagra_builder.build_gpu_index(
+                    vectors_dataset,
+                    index_build_parameters.dimension,
+                    index_build_parameters.index_parameters.space_type,
+                )
             )
 
             # Step 2a: Create a structured CPUIndexConfig having defaults,
@@ -89,29 +91,29 @@ class FaissIndexBuildService(IndexBuildService):
 
             # Step 2b: Convert GPU Index to CPU Index, update index to cpu index in index-id mappings
             # Also Delete GPU Index after conversion
-            cpu_faiss_index_id_map = (
+            cpu_faiss_build_index_output = (
                 faiss_index_hnsw_cagra_builder.convert_gpu_to_cpu_index(
-                    gpu_faiss_index_id_map
+                    gpu_faiss_build_index_output
                 )
             )
 
             # Step 3: Write CPU Index to persistent storage
             faiss_index_hnsw_cagra_builder.write_cpu_index(
-                cpu_faiss_index_id_map, cpu_index_output_file_path
+                cpu_faiss_build_index_output, cpu_index_output_file_path
             )
 
         except Exception as exception:
             # Clean up GPU Index Response if orchestrator failed after GPU Index Creation
-            if gpu_faiss_index_id_map is not None:
+            if gpu_faiss_build_index_output is not None:
                 try:
-                    del gpu_faiss_index_id_map
+                    del gpu_faiss_build_index_output
                 except Exception as e:
                     print(f"Warning: Failed to clean up GPU index response: {str(e)}")
 
             # Clean up CPU Index Response if orchestrator failed after CPU Index Creation
-            if cpu_faiss_index_id_map is not None:
+            if cpu_faiss_build_index_output is not None:
                 try:
-                    del cpu_faiss_index_id_map
+                    del cpu_faiss_build_index_output
                 except Exception as e:
                     print(f"Warning: Failed to clean up CPU index response: {str(e)}")
             raise Exception(

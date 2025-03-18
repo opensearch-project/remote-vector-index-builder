@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Dict, Any
 from core.common.models import (
     FaissCPUIndexBuilder,
-    FaissIndexIDMap,
+    FaissBuildIndexOutput,
 )
 
 
@@ -51,19 +51,19 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
 
     def convert_gpu_to_cpu_index(
         self,
-        faiss_index_id_map: FaissIndexIDMap,
-    ) -> FaissIndexIDMap:
+        faiss_build_index_output: FaissBuildIndexOutput,
+    ) -> FaissBuildIndexOutput:
         """
         Method to convert a GPU Vector Search Index to CPU Index
         Returns a CPU read compatible vector search index
         Uses faiss specific library methods to achieve this.
 
         Args:
-        faiss_index_id_map (FaissIndexIDMap) A datamodel containing the GPU Faiss Index
+        faiss_build_index_output (FaissBuildIndexOutput) A datamodel containing the GPU Faiss Index
         and dataset Vector Ids components
 
         Returns:
-        FaissIndexIDMap: A datamodel containing the created CPU Faiss Index
+        FaissBuildIndexOutput: A datamodel containing the created CPU Faiss Index
         and dataset Vector Ids components
         """
         cpuIndex = None
@@ -77,23 +77,25 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
             cpuIndex.base_level_only = self.base_level_only
 
             # Copy GPU index to CPU index
-            gpu_index = faiss_index_id_map.index_id_map.index
+            gpu_index = faiss_build_index_output.index_id_map.index
             gpu_index.copyTo(cpuIndex)
 
             # Update the ID map index with the CPU index
-            faiss_index_id_map.index_id_map.index = cpuIndex
+            faiss_build_index_output.index_id_map.index = cpuIndex
 
             # Free memory taken by GPU Index
             del gpu_index
 
-            return faiss_index_id_map
+            return faiss_build_index_output
         except Exception as e:
             raise Exception(
                 f"Failed to convert GPU index to CPU index: {str(e)}"
             ) from e
 
     def write_cpu_index(
-        self, cpu_index_id_map: FaissIndexIDMap, cpu_index_output_file_path: str
+        self,
+        cpu_build_index_output: FaissBuildIndexOutput,
+        cpu_index_output_file_path: str,
     ) -> None:
         """
         Method to write the CPU index and vector dataset id mapping to persistent local file path
@@ -101,7 +103,7 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
         Uses faiss write_index library method to achieve this
 
         Args:
-        cpu_index_id_map (FaissIndexIDMap): A datamodel containing the created GPU Faiss Index
+        cpu_build_index_output (FaissBuildIndexOutput): A datamodel containing the created GPU Faiss Index
         and dataset Vector Ids components
         cpu_index_output_file_path (str): File path to persist Index-Vector IDs map to
         """
@@ -109,9 +111,11 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
 
             # TODO: Investigate what issues may arise while writing index to local file
             # Write the final cpu index - vectors id mapping to disk
-            faiss.write_index(cpu_index_id_map.index_id_map, cpu_index_output_file_path)
+            faiss.write_index(
+                cpu_build_index_output.index_id_map, cpu_index_output_file_path
+            )
             # Free memory taken by CPU Index
-            del cpu_index_id_map
+            del cpu_build_index_output
         except IOError as io_error:
             raise Exception(
                 f"Failed to write index to file {cpu_index_output_file_path}: {str(io_error)}"
