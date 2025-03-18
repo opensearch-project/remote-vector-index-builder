@@ -9,7 +9,9 @@ import logging
 import os
 import threading
 from functools import cache
+import math
 from io import BytesIO
+import sys
 from typing import Any, Dict
 
 import boto3
@@ -21,6 +23,27 @@ from core.common.models.index_build_parameters import IndexBuildParameters
 from core.object_store.object_store import ObjectStore
 
 logger = logging.getLogger(__name__)
+
+
+def get_cpus(factor: float) -> int:
+    """Get the number of CPUs to use for s3 upload or download operation
+
+    Args:
+        factor (float): The factor to multiply total cpu count by
+
+    Returns:
+        int: The number of CPUs that will be used for s3 upload or download
+
+    Note: The factor may differ for uploads and downloads, based on benchmarking data
+    The cpu count is rounded down to the nearest integer
+    """
+
+    # according to mypy, os.cpu_count can be None
+    # if it is none, then default to 1 thread
+    cpu_count = os.cpu_count()
+    if cpu_count:
+        return math.floor(cpu_count * factor)
+    return 1
 
 
 @cache
@@ -45,8 +68,10 @@ class S3ObjectStore(ObjectStore):
     with configurable retry logic and transfer settings for optimal performance.
 
     Attributes:
-        DEFAULT_TRANSFER_CONFIG (dict): Default configuration for S3 file transfers,
-            including chunk sizes, concurrency, and retry settings
+        DEFAULT_DOWNLOAD_TRANSFER_CONFIG (dict): Default configuration for S3 file downloads,
+            including chunk sizes and concurrency
+        DEFAULT_UPLOAD_TRANSFER_CONFIG (dict): Default configuration for S3 file uploads,
+            including chunk sizes and concurrency
         DEFAULT_DOWNLOAD_ARGS (dict): Default boto3 ALLOWED_DOWNLOAD_ARGS values.
             Includes encryption and checksum settings.
         DEFAULT_UPLOAD_ARGS (dict): Default boto3 ALLOWED_UPLOAD_ARGS values.
@@ -56,26 +81,6 @@ class S3ObjectStore(ObjectStore):
         index_build_params (IndexBuildParameters): Parameters for the index building process
         object_store_config (Dict[str, Any]): Configuration options for S3 interactions
     """
-
-    DEFAULT_TRANSFER_CONFIG = {
-        "multipart_chunksize": 10 * 1024 * 1024,  # 10MB
-        "max_concurrency": (os.cpu_count() or 2)
-        // 2,  # os.cpu_count can be None, according to mypy. If it is none, then default to 1 thread
-        "multipart_threshold": 10 * 1024 * 1024,  # 10MB
-        "use_threads": True,
-        "io_chunksize": 256 * 1024,  # 256KB
-        "num_download_attempts": 5,
-        "max_io_queue": 100,
-        "preferred_transfer_client": "auto",
-    }
-
-    DEFAULT_DOWNLOAD_ARGS = {
-        "ChecksumMode": "ENABLED",
-    }
-
-    DEFAULT_UPLOAD_ARGS = {
-        "ChecksumAlgorithm": "CRC32",
-    }
 
     def __init__(
         self,
@@ -93,17 +98,40 @@ class S3ObjectStore(ObjectStore):
                 - transfer_config (Dict[str, Any]): s3 TransferConfig parameters
                 - debug: Turns on debug mode (default: False)
         """
+
+        self.DEFAULT_DOWNLOAD_TRANSFER_CONFIG = {
+            "multipart_chunksize": 50 * 1024 * 1024,  # 50MB
+            "max_concurrency": get_cpus(factor=0.625),
+            "multipart_threshold": 50 * 1024 * 1024,  # 50MB
+            "io_chunksize": sys.maxsize,
+        }
+
+        self.DEFAULT_UPLOAD_TRANSFER_CONFIG = {
+            "multipart_chunksize": 50 * 1024 * 1024,  # 50MB
+            "max_concurrency": get_cpus(factor=0.25),
+            "multipart_threshold": 50 * 1024 * 1024,  # 50MB
+        }
+
+        self.DEFAULT_DOWNLOAD_ARGS = {
+            "ChecksumMode": "ENABLED",
+        }
+
+        self.DEFAULT_UPLOAD_ARGS = {
+            "ChecksumAlgorithm": "CRC32",
+        }
         self.bucket = index_build_params.container_name
         self.max_retries = object_store_config.get("retries", 3)
         self.region = object_store_config.get("region", "us-west-2")
 
         self.s3_client = get_boto3_client(region=self.region, retries=self.max_retries)
 
-        transfer_config = object_store_config.get("transfer_config", {})
-        # Create transfer config
-        # This is passed as the 'Config' parameter to the boto3 download and upload API calls
-        self.transfer_config = S3ObjectStore._create_custom_config(
-            transfer_config, self.DEFAULT_TRANSFER_CONFIG
+        download_transfer_config = object_store_config.get(
+            "download_transfer_config", {}
+        )
+        # Create download transfer config
+        # This is passed as the 'Config' parameter to the boto3 download API call
+        self.download_transfer_config = S3ObjectStore._create_custom_config(
+            download_transfer_config, self.DEFAULT_DOWNLOAD_TRANSFER_CONFIG
         )
 
         download_args = object_store_config.get("download_args", {})
@@ -113,6 +141,12 @@ class S3ObjectStore(ObjectStore):
             download_args, self.DEFAULT_DOWNLOAD_ARGS
         )
 
+        upload_transfer_config = object_store_config.get("upload_transfer_config", {})
+        # Create upload transfer config
+        # This is passed as the 'Config' parameter to the boto3 upload API call
+        self.upload_transfer_config = S3ObjectStore._create_custom_config(
+            upload_transfer_config, self.DEFAULT_UPLOAD_TRANSFER_CONFIG
+        )
         upload_args = object_store_config.get("upload_args", {})
         # Create upload args
         # This is passed as the 'ExtraArgs' parameter to the boto3 upload API call
@@ -193,7 +227,8 @@ class S3ObjectStore(ObjectStore):
 
         try:
             # Create transfer config object
-            s3_transfer_config = TransferConfig(**self.transfer_config)
+            s3_transfer_config = TransferConfig(**self.download_transfer_config)
+
             self.s3_client.download_fileobj(
                 self.bucket,
                 remote_store_path,
@@ -244,7 +279,8 @@ class S3ObjectStore(ObjectStore):
 
         try:
             # Create transfer config object
-            s3_transfer_config = TransferConfig(**self.transfer_config)
+            s3_transfer_config = TransferConfig(**self.upload_transfer_config)
+
             self.s3_client.upload_file(
                 local_file_path,
                 self.bucket,
