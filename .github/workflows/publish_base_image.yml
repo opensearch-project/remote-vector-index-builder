@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - github-ci
 
 permissions:
   id-token: write
