@@ -9,5 +9,10 @@ from enum import Enum
 
 
 class CagraGraphBuildAlgo(Enum):
+    """
+    Use this enum to switch the type of FAISS GPU Cagra Index to build
+    in the FaissGpuIndexCagraBuilder
+    """
+
     IVF_PQ = "IVF_PQ"
     NN_DESCENT = "NN_DESCENT"
