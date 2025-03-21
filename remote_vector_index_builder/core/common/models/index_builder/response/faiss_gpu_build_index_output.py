@@ -32,6 +32,7 @@ class FaissGpuBuildIndexOutput:
                 # Delete the internal Index
                 del self.gpu_index
             if self.index_id_map:
+                self.index_id_map.index = None
                 # Delete the vectors, vector ids stored as part of the IndexIDMap
                 self.index_id_map.own_fields = True
                 del self.index_id_map

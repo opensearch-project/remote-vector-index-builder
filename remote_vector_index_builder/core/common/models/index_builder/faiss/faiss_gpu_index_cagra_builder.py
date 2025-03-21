@@ -141,24 +141,28 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
         if not params:
             return cls()
 
+        # Create a copy of params to avoid modifying the original
+        params_copy = params.copy()
         # Extract and configure IVF-PQ build parameters
-        ivf_pq_build_params = params.pop("ivf_pq_build_params", None)
+        ivf_pq_build_params = params_copy.pop("ivf_pq_build_params", {})
         ivf_pq_build_config = IVFPQBuildCagraConfig.from_dict(ivf_pq_build_params)
 
         # Extract and configure IVF-PQ search parameters
-        ivf_pq_search_params = params.pop("ivf_pq_search_params", None)
+        ivf_pq_search_params = params_copy.pop("ivf_pq_search_params", {})
         ivf_pq_search_config = IVFPQSearchCagraConfig.from_dict(ivf_pq_search_params)
 
         # Extract and configure graph build algo enum
-        if "graph_build_algo" in params:
-            params["graph_build_algo"] = CagraGraphBuildAlgo(params["graph_build_algo"])
+        if "graph_build_algo" in params_copy:
+            params_copy["graph_build_algo"] = CagraGraphBuildAlgo(
+                params_copy["graph_build_algo"]
+            )
 
         # Validate parameters
-        cls._validate_params(params)
+        cls._validate_params(params_copy)
 
         # Create and set the complete GPUIndexCagraConfig
         return cls(
-            **params,
+            **params_copy,
             ivf_pq_build_config=ivf_pq_build_config,
             ivf_pq_search_config=ivf_pq_search_config,
         )
