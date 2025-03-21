@@ -40,10 +40,8 @@ def object_store_config():
         "retries": 3,
         "region": "us-west-2",
         "debug": False,
-        "transfer_config": {
-            "multipart_chunksize": 10 * 1024 * 1024,
-            "max_concurrency": 4,
-        },
+        "download_transfer_config": {"max_concurrency": 4},
+        "upload_transfer_config": {"max_concurrency": 8},
     }
 
 
@@ -80,16 +78,8 @@ def test_s3_object_store_initialization(index_build_params, object_store_config)
         assert store.bucket == "test-bucket"
         assert store.max_retries == 3
         assert store.region == "us-west-2"
-        assert store.transfer_config["multipart_chunksize"] == 10 * 1024 * 1024
-        assert store.transfer_config["max_concurrency"] == 4
-        assert not store.debug
-
-
-def test_s3_object_store_initialization_defaults(index_build_params):
-    with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
-        store = S3ObjectStore(index_build_params, {})
-        assert store.max_retries == 3
-        assert store.region == "us-west-2"
+        assert store.download_transfer_config["max_concurrency"] == 4
+        assert store.upload_transfer_config["max_concurrency"] == 8
         assert not store.debug
 
 
@@ -108,10 +98,13 @@ def test_create_custom_config(index_build_params):
         "retries": 3,
         "region": "us-west-2",
         "debug": False,
-        "transfer_config": {
+        "download_transfer_config": {
             "multipart_chunksize": 20 * 1024 * 1024,
             "max_concurrency": 8,
             "param": "value",
+        },
+        "upload_transfer_config": {
+            "max_concurrency": 8,
         },
         "download_args": {"ChecksumMode": "DISABLED", "param": "value"},
         "upload_args": {"ChecksumAlgorithm": "SHA1", "param": "value"},
@@ -122,14 +115,20 @@ def test_create_custom_config(index_build_params):
         assert store.max_retries == 3
         assert store.region == "us-west-2"
         assert not store.debug
-        assert store.transfer_config["multipart_chunksize"] == 20 * 1024 * 1024
-        assert store.transfer_config["max_concurrency"] == 8
+        assert store.download_transfer_config["multipart_chunksize"] == 20 * 1024 * 1024
+        assert store.download_transfer_config["max_concurrency"] == 8
         assert store.download_args["ChecksumMode"] == "DISABLED"
+
+        assert store.upload_transfer_config["max_concurrency"] == 8
+        assert (
+            store.upload_transfer_config["multipart_chunksize"]
+            == store.DEFAULT_UPLOAD_TRANSFER_CONFIG["multipart_chunksize"]
+        )
         assert store.upload_args["ChecksumAlgorithm"] == "SHA1"
 
         # In production, if boto3 does not support 'param', it will throw an exception
         # So, no need for the object store client to also validate the params, during construction
-        assert "param" in store.transfer_config
+        assert "param" in store.download_transfer_config
         assert "param" in store.download_args
         assert "param" in store.upload_args
 
@@ -149,7 +148,7 @@ def test_read_blob_success(index_build_params, object_store_config, bytes_buffer
             store.s3_client.download_fileobj.call_args.kwargs["Config"].__dict__[
                 "max_concurrency"
             ]
-            == store.transfer_config["max_concurrency"]
+            == store.download_transfer_config["max_concurrency"]
         )
         assert store.s3_client.download_fileobj.call_args.kwargs["Callback"] is None
         assert (
@@ -225,7 +224,7 @@ def test_write_blob_success(index_build_params, object_store_config):
             store.s3_client.upload_file.call_args.kwargs["Config"].__dict__[
                 "max_concurrency"
             ]
-            == store.transfer_config["max_concurrency"]
+            == store.upload_transfer_config["max_concurrency"]
         )
         assert store.s3_client.upload_file.call_args.kwargs["Callback"] is None
         assert (
