@@ -12,7 +12,6 @@ import pytest
 from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import ClientError
 from core.common.exceptions import BlobError
-from core.common.models.index_build_parameters import IndexBuildParameters
 from core.object_store.s3.s3_object_store import S3ObjectStore, get_boto3_client
 
 
@@ -21,17 +20,6 @@ from core.object_store.s3.s3_object_store import S3ObjectStore, get_boto3_client
 def mock_logger():
     with patch("core.object_store.s3.s3_object_store.logger"):
         yield
-
-
-@pytest.fixture
-def index_build_params():
-    return IndexBuildParameters(
-        container_name="test-bucket",
-        vector_path="test-vector-path.knnvec",
-        doc_id_path="test-doc-id-path",
-        dimension=100,
-        doc_count=10,
-    )
 
 
 @pytest.fixture
@@ -46,9 +34,9 @@ def object_store_config():
 
 
 @pytest.fixture
-def s3_object_store(index_build_params, object_store_config):
+def s3_object_store(index_build_parameters, object_store_config):
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
-        store = S3ObjectStore(index_build_params, object_store_config)
+        store = S3ObjectStore(index_build_parameters, object_store_config)
         yield store
 
 
@@ -72,28 +60,32 @@ def test_get_boto3_client():
         assert mock_client.call_count == 2
 
 
-def test_s3_object_store_initialization(index_build_params, object_store_config):
+def test_s3_object_store_initialization(index_build_parameters, object_store_config):
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
-        store = S3ObjectStore(index_build_params, object_store_config)
-        assert store.bucket == "test-bucket"
-        assert store.max_retries == 3
-        assert store.region == "us-west-2"
-        assert store.download_transfer_config["max_concurrency"] == 4
-        assert store.upload_transfer_config["max_concurrency"] == 8
+        store = S3ObjectStore(index_build_parameters, object_store_config)
+        assert store.bucket == index_build_parameters.container_name
+        assert store.max_retries == object_store_config["retries"]
+        assert store.region == object_store_config["region"]
+        assert (
+            store.download_transfer_config["max_concurrency"]
+            == object_store_config["download_transfer_config"]["max_concurrency"]
+        )
+        assert (
+            store.upload_transfer_config["max_concurrency"]
+            == object_store_config["upload_transfer_config"]["max_concurrency"]
+        )
         assert not store.debug
 
 
 # also test if os.cpu_count is none
-def test_s3_object_store_initialization_debug_config(index_build_params):
+def test_s3_object_store_initialization_debug_config(index_build_parameters):
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
         with patch("os.cpu_count", return_value=None):
-            store = S3ObjectStore(index_build_params, {"debug": True})
-            assert store.max_retries == 3
-            assert store.region == "us-west-2"
+            store = S3ObjectStore(index_build_parameters, {"debug": True})
             assert store.debug
 
 
-def test_create_custom_config(index_build_params):
+def test_create_custom_config(index_build_parameters):
     custom_config = {
         "retries": 3,
         "region": "us-west-2",
@@ -111,7 +103,7 @@ def test_create_custom_config(index_build_params):
     }
 
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
-        store = S3ObjectStore(index_build_params, custom_config)
+        store = S3ObjectStore(index_build_parameters, custom_config)
         assert store.max_retries == 3
         assert store.region == "us-west-2"
         assert not store.debug
@@ -133,9 +125,9 @@ def test_create_custom_config(index_build_params):
         assert "param" in store.upload_args
 
 
-def test_read_blob_success(index_build_params, object_store_config, bytes_buffer):
+def test_read_blob_success(index_build_parameters, object_store_config, bytes_buffer):
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
-        store = S3ObjectStore(index_build_params, object_store_config)
+        store = S3ObjectStore(index_build_parameters, object_store_config)
         store.s3_client.download_fileobj = Mock()
 
         store.read_blob("test/path", bytes_buffer)
@@ -162,10 +154,12 @@ def test_read_blob_success(index_build_params, object_store_config, bytes_buffer
         )
 
 
-def test_read_blob_with_debug(index_build_params, object_store_config, bytes_buffer):
+def test_read_blob_with_debug(
+    index_build_parameters, object_store_config, bytes_buffer
+):
     object_store_config["debug"] = True
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
-        store = S3ObjectStore(index_build_params, object_store_config)
+        store = S3ObjectStore(index_build_parameters, object_store_config)
         store.s3_client.download_fileobj = Mock()
 
         store.read_blob("test/path", bytes_buffer)
@@ -182,10 +176,10 @@ def test_read_blob_with_debug(index_build_params, object_store_config, bytes_buf
 
 
 def test_read_blob_client_error_failure(
-    index_build_params, object_store_config, bytes_buffer
+    index_build_parameters, object_store_config, bytes_buffer
 ):
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
-        store = S3ObjectStore(index_build_params, object_store_config)
+        store = S3ObjectStore(index_build_parameters, object_store_config)
         error = ClientError(
             {"Error": {"Code": "LimitExceededException", "Message": "Limit Exceeded"}},
             "DownloadFileObj",
@@ -196,10 +190,10 @@ def test_read_blob_client_error_failure(
 
 
 def test_read_blob_type_error_failure(
-    index_build_params, object_store_config, bytes_buffer
+    index_build_parameters, object_store_config, bytes_buffer
 ):
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
-        store = S3ObjectStore(index_build_params, object_store_config)
+        store = S3ObjectStore(index_build_parameters, object_store_config)
         error = TypeError(
             "TransferConfig.__init__() got an unexpected keyword argument"
         )
@@ -209,9 +203,9 @@ def test_read_blob_type_error_failure(
             store.read_blob("test/path", bytes_buffer)
 
 
-def test_write_blob_success(index_build_params, object_store_config):
+def test_write_blob_success(index_build_parameters, object_store_config):
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
-        store = S3ObjectStore(index_build_params, object_store_config)
+        store = S3ObjectStore(index_build_parameters, object_store_config)
         store.s3_client.upload_file = Mock()
         store.write_blob("local/path", "remote/path")
 
@@ -238,10 +232,10 @@ def test_write_blob_success(index_build_params, object_store_config):
         )
 
 
-def test_write_blob_with_debug(index_build_params, object_store_config):
+def test_write_blob_with_debug(index_build_parameters, object_store_config):
     object_store_config["debug"] = True
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
-        store = S3ObjectStore(index_build_params, object_store_config)
+        store = S3ObjectStore(index_build_parameters, object_store_config)
         store.s3_client.upload_file = Mock()
 
         store.write_blob("local/path", "remote/path")
@@ -257,9 +251,9 @@ def test_write_blob_with_debug(index_build_params, object_store_config):
         assert store._write_progress == 150
 
 
-def test_write_blob_client_error_failure(index_build_params, object_store_config):
+def test_write_blob_client_error_failure(index_build_parameters, object_store_config):
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
-        store = S3ObjectStore(index_build_params, object_store_config)
+        store = S3ObjectStore(index_build_parameters, object_store_config)
         error = ClientError(
             {"Error": {"Code": "LimitExceededException", "Message": "Limit Exceeded"}},
             "UploadFile",
@@ -269,9 +263,9 @@ def test_write_blob_client_error_failure(index_build_params, object_store_config
             store.write_blob("local/path", "remote/path")
 
 
-def test_write_blob_type_error_failure(index_build_params, object_store_config):
+def test_write_blob_type_error_failure(index_build_parameters, object_store_config):
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
-        store = S3ObjectStore(index_build_params, object_store_config)
+        store = S3ObjectStore(index_build_parameters, object_store_config)
         error = TypeError(
             "TransferConfig.__init__() got an unexpected keyword argument"
         )

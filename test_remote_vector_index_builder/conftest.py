@@ -5,15 +5,11 @@
 # this file be licensed under the Apache-2.0 license or a
 # compatible open source license.
 
+import sys
 from types import ModuleType
 from unittest.mock import Mock
-import sys
-from pathlib import Path
-import pytest
 
-project_root = str(Path(__file__).parent.parent / "remote-vector-index-builder")
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+import pytest
 
 
 class DeletionTracker:
