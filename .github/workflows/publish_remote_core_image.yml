@@ -16,9 +16,7 @@ jobs:
   build-and-publish-core-image:
     name: Build and Publish Remote-Vector-Index-Builder Core Image
     if: github.repository == 'opensearch-project/remote-vector-index-builder'
-    runs-on:
-      group: selfhosted-gpu-runners
-      labels: g62xlarge
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
@@ -52,8 +50,3 @@ jobs:
         run : |
           docker push opensearchstaging/remote-vector-index-builder:core-1.0.0
           docker push opensearchstaging/remote-vector-index-builder:core-latest
-
-      - name: Docker logout
-        if: always()
-        run: |
-          docker logout
