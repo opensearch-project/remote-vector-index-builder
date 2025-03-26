@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - core-image
+      - core-image-ci-3
     paths:
       - 'remote_vector_index_builder/**'
       - '.github/workflows/publish_remote_core_image.yml'
