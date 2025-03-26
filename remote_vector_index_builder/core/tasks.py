@@ -89,6 +89,8 @@ def run_tasks(
     with tempfile.TemporaryDirectory() as temp_dir, BytesIO() as vector_buffer, BytesIO() as doc_id_buffer:
         if object_store_config is None:
             object_store_config = {}
+
+        vectors_dataset = None
         try:
             logger.info(
                 f"Starting task execution for vector path: {index_build_params.vector_path}"
@@ -137,6 +139,9 @@ def run_tasks(
         except Exception as e:
             logger.error(f"Error running tasks: {e}")
             return TaskResult(error=str(e))
+        finally:
+            if vectors_dataset is not None:
+                vectors_dataset.free_vectors_space()
 
 
 def build_index(

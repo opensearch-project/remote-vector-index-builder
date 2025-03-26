@@ -170,7 +170,7 @@ def test_successful_task_execution(index_build_parameters, mock_vectors_dataset)
         mock_create_dataset.assert_called_once()
         mock_build_index.assert_called_once()
         mock_upload_index.assert_called_once()
-        mock_vectors_dataset.free_vectors_space.assert_called_once()
+        assert mock_vectors_dataset.free_vectors_space.call_count == 2
         mock_os_remove.assert_called_once()
         mock_os_makedirs.assert_called_once()
 
@@ -207,7 +207,7 @@ def test_successful_task_execution_with_object_store_config(
         )
         mock_build_index.assert_called_once()
         mock_upload_index.assert_called_once()
-        mock_vectors_dataset.free_vectors_space.assert_called_once()
+        assert mock_vectors_dataset.free_vectors_space.call_count == 2
         mock_os_remove.assert_called_once()
         mock_os_makedirs.assert_called_once()
 
@@ -222,3 +222,27 @@ def test_create_vectors_dataset_failure(index_build_parameters):
         assert isinstance(result, TaskResult)
         assert result.file_name is None
         assert result.error == "Dataset creation failed"
+
+
+def test_build_index_failure(index_build_parameters, mock_vectors_dataset):
+    with patch("core.tasks.create_vectors_dataset") as mock_create_dataset, patch(
+        "core.tasks.build_index"
+    ) as mock_build_index, patch("os.makedirs") as mock_os_makedirs:
+
+        # Setup mocks
+        mock_create_dataset.return_value = mock_vectors_dataset
+        mock_build_index.side_effect = Exception("Index building failed")
+
+        # Execute function
+        result = run_tasks(index_build_parameters)
+
+        # Verify success
+        assert isinstance(result, TaskResult)
+        assert result.file_name is None
+        assert result.error == "Index building failed"
+
+        # Verify mock calls
+        mock_create_dataset.assert_called_once()
+        mock_build_index.assert_called_once()
+        mock_vectors_dataset.free_vectors_space.assert_called_once()
+        mock_os_makedirs.assert_called_once()

@@ -44,6 +44,16 @@ def test_free_vectors_space(vectors_dataset):
         _ = vectors_dataset.doc_ids
 
 
+def test_free_vectors_space_when_vectors_and_doc_ids_already_deleted(vectors_dataset):
+    vectors_dataset.free_vectors_space()
+    with pytest.raises(AttributeError):
+        _ = vectors_dataset.vectors
+    with pytest.raises(AttributeError):
+        _ = vectors_dataset.doc_ids
+    # test idempotency
+    vectors_dataset.free_vectors_space()
+
+
 @pytest.mark.parametrize(
     "dtype, expected",
     [

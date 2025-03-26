@@ -31,8 +31,16 @@ class VectorsDataset:
 
     def free_vectors_space(self):
         """Free up memory by deleting the vectors and document IDs arrays."""
-        del self.vectors
-        del self.doc_ids
+
+        try:
+            del self.vectors
+        except AttributeError:
+            pass
+        try:
+            del self.doc_ids
+        except AttributeError:
+            pass
+        return
 
     @staticmethod
     def get_numpy_dtype(dtype: DataType):
