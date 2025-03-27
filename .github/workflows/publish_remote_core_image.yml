@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'remote_vector_index_builder/**'
+      - 'remote_vector_index_builder/core/**'
       - '.github/workflows/publish_remote_core_image.yml'
 
 permissions:
@@ -24,7 +24,7 @@ jobs:
 
       - name: Build Docker Image
         run : |
-          docker build  -f ./remote_vector_index_builder/Dockerfile . -t opensearchstaging/remote-vector-index-builder:core-1.0.0
+          docker build  -f ./remote_vector_index_builder/core/Dockerfile . -t opensearchstaging/remote-vector-index-builder:core-1.0.0
           docker tag opensearchstaging/remote-vector-index-builder:core-1.0.0 opensearchstaging/remote-vector-index-builder:core-latest
 
       - name: Configure AWS Credentials
@@ -50,3 +50,7 @@ jobs:
         run : |
           docker push opensearchstaging/remote-vector-index-builder:core-1.0.0
           docker push opensearchstaging/remote-vector-index-builder:core-latest
+      - name: Runner Cleanups
+        if: always()
+        run: |
+          docker logout
