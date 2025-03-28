@@ -21,8 +21,11 @@ class FaissCpuBuildIndexOutput:
     index_id_map: faiss.IndexIDMap
 
     def __del__(self):
+        self.cleanup()
+
+    def cleanup(self):
         """
-        Destructor to clean up FAISS resources.
+        Clean up method for FAISS resources.
         Ensures memory is properly freed when the object is destroyed.
 
         The method handles cleanup by
@@ -31,10 +34,18 @@ class FaissCpuBuildIndexOutput:
         try:
             if self.cpu_index:
                 # Delete the internal Index
-                del self.cpu_index
+                self.cpu_index.thisown = True
+
+                cpu_index = self.cpu_index
+                self.cpu_index = None
+                cpu_index.__swig_destroy__(cpu_index)
             if self.index_id_map:
                 # Delete the vectors, vector ids stored as part of the IndexIDMap
-                self.index_id_map.own_fields = True
-                del self.index_id_map
+                self.index_id_map.own_fields = False
+                self.index_id_map.thisown = True
+
+                index_id_map = self.index_id_map
+                self.index_id_map = None
+                index_id_map.__swig_destroy__(index_id_map)
         except Exception as e:
             print(f"Error during cleanup of FaissCpuBuildIndexOutput: {e}")
