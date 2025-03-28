@@ -23,6 +23,17 @@ class DataType(str, Enum):
 
     FLOAT = "float"
 
+    def get_size(self):
+        """Get the size of the data type in bytes.
+
+        Returns:
+            int: The size of the data type in bytes.
+        """
+        if self == DataType.FLOAT:
+            return 4
+        else:
+            raise ValueError(f"Unsupported data type: {self}")
+
 
 class SpaceType(str, Enum):
     """Distance method used for measuring vector similarities.
