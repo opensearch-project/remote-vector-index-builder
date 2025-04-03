@@ -16,5 +16,7 @@ RUN pip install --no-cache-dir --upgrade -r /remote_vector_index_builder/app/req
 COPY ./remote_vector_index_builder/app /remote_vector_index_builder/app
 
 ENV PYTHONPATH='${PYTHONPATH}:/tmp/faiss/build/faiss/python:/remote_vector_index_builder'
+
 RUN ["python", "app/test_imports.py"]
-CMD ["fastapi", "run", "app/main.py", "--port", "80"]
+
+CMD ["fastapi", "run", "app/main.py", "--port", "1025"]

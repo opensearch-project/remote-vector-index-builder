@@ -38,24 +38,6 @@ class ResourceManager:
         self._available_cpu_memory = total_cpu_memory
         self._lock = threading.Lock()
 
-    # TODO: separate this function into CPU and GPU specific allocation checks
-    def can_allocate(self, gpu_memory: float, cpu_memory: float) -> bool:
-        """
-        Check if the requested amount of GPU and CPU memory can be allocated.
-
-        Args:
-            gpu_memory (float): Amount of GPU memory requested, in bytes
-            cpu_memory (float): Amount of CPU memory requested, in bytes
-
-        Returns:
-            bool: True if the requested memory can be allocated, False otherwise
-        """
-        with self._lock:
-            return (
-                self._available_gpu_memory >= gpu_memory
-                and self._available_cpu_memory >= cpu_memory
-            )
-
     def allocate(self, gpu_memory: float, cpu_memory: float) -> bool:
         """
         Attempt to allocate the specified amount of GPU and CPU memory.
@@ -67,9 +49,9 @@ class ResourceManager:
         Returns:
             bool: True if allocation was successful, False if insufficient resources
         """
-        if not self.can_allocate(gpu_memory, cpu_memory):
-            return False
         with self._lock:
+            if not (self._available_gpu_memory >= gpu_memory and self._available_cpu_memory >= cpu_memory):
+                return False
             self._available_gpu_memory -= gpu_memory
             self._available_cpu_memory -= cpu_memory
             return True

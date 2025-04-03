@@ -30,9 +30,6 @@ def test_successful_allocation(resource_manager):
     manager, total_gpu, total_cpu = resource_manager
     allocation_size = 512 * 1024 * 1024  # 512MB
 
-    # Check if allocation is possible
-    assert manager.can_allocate(allocation_size, allocation_size)
-
     # Perform allocation
     success = manager.allocate(allocation_size, allocation_size)
     assert success
@@ -46,9 +43,6 @@ def test_failed_allocation(resource_manager):
     """Test allocation failure when requesting more than available memory"""
     manager, total_gpu, _ = resource_manager
     excessive_size = total_gpu + 1
-
-    # Check if allocation is possible
-    assert not manager.can_allocate(excessive_size, 0)
 
     # Attempt allocation
     success = manager.allocate(excessive_size, 0)

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 import threading
 import time
 
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.storage.base import RequestStore
 from app.base.config import Settings
 
@@ -136,7 +136,7 @@ class InMemoryRequestStore(RequestStore):
 
     def cleanup_expired(self) -> None:
         """
-        Remove all expired entries from the store based on TTL.
+        Remove all expired completed and failed entries from the store based on TTL.
         Thread-safe implementation using the store's lock.
         """
         with self._lock:
@@ -146,7 +146,7 @@ class InMemoryRequestStore(RequestStore):
             self._store = {
                 job_id: data
                 for job_id, data in self._store.items()
-                if data[1] > expiration_threshold
+                if data[1] > expiration_threshold or data[0].status == JobStatus.RUNNING
             }
 
     def _cleanup_loop(self) -> None:

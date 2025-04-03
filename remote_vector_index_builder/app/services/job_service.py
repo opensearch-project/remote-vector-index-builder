@@ -85,31 +85,6 @@ class JobService:
             raise HashCollisionError(f"Hash collision detected for job_id: {job_id}")
         return False
 
-    def _get_required_resources(
-        self, index_build_parameters: IndexBuildParameters
-    ) -> tuple[float, float]:
-        """
-        Calculate required GPU and CPU memory resources for a job.
-
-        Args:
-            index_build_parameters (IndexBuildParameters): Parameters for building the index.
-            Contains dimension, doc count, data type, m - the parameters needed to calculate memory
-
-        Returns:
-            tuple[float, float]: Required GPU and CPU memory (in bytes)
-        """
-        gpu_mem, cpu_mem = calculate_memory_requirements(index_build_parameters)
-
-        logger.info(
-            f"Job id requirements: GPU memory: {gpu_mem}, CPU memory: {cpu_mem}"
-        )
-        if not self.resource_manager.can_allocate(gpu_mem, cpu_mem):
-            raise CapacityError(
-                "Insufficient available GPU and CPU resources to process job"
-            )
-
-        return gpu_mem, cpu_mem
-
     def _add_to_request_store(
         self, job_id: str, request_parameters: RequestParameters
     ) -> None:
@@ -171,7 +146,7 @@ class JobService:
         if not allocation_success:
             self.request_store.delete(job_id)
             raise CapacityError(
-                f"Insufficient available resources to process workflow {workflow.job_id}"
+                f"Insufficient available resources to process workflow"
             )
 
         return workflow
@@ -205,19 +180,25 @@ class JobService:
             logger.info(f"Job with id {job_id} already exists")
             return job_id
 
-        gpu_mem, cpu_mem = self._get_required_resources(index_build_parameters)
-
         self._add_to_request_store(job_id, request_parameters)
         logger.info(f"Added job to request store with job id: {job_id}")
+
+        gpu_mem, cpu_mem = calculate_memory_requirements(index_build_parameters)
+
+        logger.info(
+            f"Job id requirements: GPU memory: {gpu_mem}, CPU memory: {cpu_mem}"
+        )
 
         workflow = self._create_workflow(
             job_id, gpu_mem, cpu_mem, index_build_parameters
         )
+
         logger.info(
             f"Worker resource status for job id {job_id}: - "
             f"GPU: {self.resource_manager.get_available_gpu_memory():,} bytes, "
             f"CPU: {self.resource_manager.get_available_cpu_memory():,} bytes"
         )
+
         self.workflow_executor.submit_workflow(workflow)
         logger.info(f"Successfully created workflow with job id: {job_id}")
 

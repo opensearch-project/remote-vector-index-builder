@@ -33,7 +33,6 @@ def workflow_executor():
 @pytest.fixture
 def resource_manager():
     mock = Mock()
-    mock.can_allocate.return_value = True
     mock.allocate.return_value = True
     mock.get_available_gpu_memory.return_value = 1000
     mock.get_available_cpu_memory.return_value = 1000
@@ -90,28 +89,6 @@ def test_validate_job_existence_hash_collision(
     with pytest.raises(HashCollisionError):
         job_service._validate_job_existence("test_id", mock_request_parameters)
 
-
-@patch("app.services.job_service.calculate_memory_requirements")
-def test_get_required_resources_success(mock_calc, job_service, index_build_parameters):
-    """Test successful resource requirements calculation"""
-    mock_calc.return_value = (100.0, 200.0)
-    gpu_mem, cpu_mem = job_service._get_required_resources(index_build_parameters)
-    assert gpu_mem == 100.0
-    assert cpu_mem == 200.0
-
-
-@patch("app.services.job_service.calculate_memory_requirements")
-def test_get_required_resources_insufficient(
-    mock_calc, job_service, index_build_parameters
-):
-    """Test resource calculation with insufficient resources"""
-    mock_calc.return_value = (100.0, 200.0)
-    job_service.resource_manager.can_allocate.return_value = False
-
-    with pytest.raises(CapacityError):
-        job_service._get_required_resources(index_build_parameters)
-
-
 @patch("app.services.job_service.Job")
 def test_add_to_request_store_success(job, job_service, mock_request_parameters):
     """Test successful addition to request store"""
@@ -143,6 +120,7 @@ def test_create_workflow_allocation_failure(job_service, index_build_parameters)
 
     with pytest.raises(CapacityError):
         job_service._create_workflow("test_id", 100.0, 200.0, index_build_parameters)
+        job_service.request_store.delete.assert_called_once()
 
 
 @patch("app.services.job_service.create_request_parameters")

@@ -27,6 +27,7 @@ def settings_no_ttl():
 @pytest.fixture
 def sample_job():
     job = Mock()
+    job.status = JobStatus.COMPLETED
     return job
 
 
@@ -104,6 +105,13 @@ def test_cleanup_expired(settings, sample_job):
     time.sleep(1.1)  # Wait for expiration
     store.cleanup_expired()
     assert store.get("job1") is None
+
+def test_do_not_clean_up_in_progress_job(settings, sample_job):
+    store = InMemoryRequestStore(settings)
+    sample_job.status = JobStatus.RUNNING
+    store.add("job1", sample_job)
+    store.cleanup_expired()
+    assert store.get("job1") == sample_job
 
 
 @patch("time.sleep")
