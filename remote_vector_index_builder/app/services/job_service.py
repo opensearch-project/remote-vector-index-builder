@@ -146,7 +146,7 @@ class JobService:
         if not allocation_success:
             self.request_store.delete(job_id)
             raise CapacityError(
-                f"Insufficient available resources to process workflow"
+                f"Insufficient available resources to process job {job_id}"
             )
 
         return workflow

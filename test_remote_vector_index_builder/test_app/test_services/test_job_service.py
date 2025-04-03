@@ -89,6 +89,7 @@ def test_validate_job_existence_hash_collision(
     with pytest.raises(HashCollisionError):
         job_service._validate_job_existence("test_id", mock_request_parameters)
 
+
 @patch("app.services.job_service.Job")
 def test_add_to_request_store_success(job, job_service, mock_request_parameters):
     """Test successful addition to request store"""

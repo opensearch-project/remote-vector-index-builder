@@ -106,6 +106,7 @@ def test_cleanup_expired(settings, sample_job):
     store.cleanup_expired()
     assert store.get("job1") is None
 
+
 def test_do_not_clean_up_in_progress_job(settings, sample_job):
     store = InMemoryRequestStore(settings)
     sample_job.status = JobStatus.RUNNING

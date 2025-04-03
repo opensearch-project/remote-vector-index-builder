@@ -50,7 +50,10 @@ class ResourceManager:
             bool: True if allocation was successful, False if insufficient resources
         """
         with self._lock:
-            if not (self._available_gpu_memory >= gpu_memory and self._available_cpu_memory >= cpu_memory):
+            if not (
+                self._available_gpu_memory >= gpu_memory
+                and self._available_cpu_memory >= cpu_memory
+            ):
                 return False
             self._available_gpu_memory -= gpu_memory
             self._available_cpu_memory -= cpu_memory
