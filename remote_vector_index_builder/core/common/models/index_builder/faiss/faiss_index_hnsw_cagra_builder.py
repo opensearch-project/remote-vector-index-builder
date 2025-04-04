@@ -78,17 +78,21 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
             cpu_index.base_level_only = self.base_level_only
 
             # Copy GPU index to CPU index
-            gpu_index = faiss_gpu_build_index_output.gpu_index
-            gpu_index.copyTo(cpu_index)
+            faiss_gpu_build_index_output.gpu_index.copyTo(cpu_index)
+
+            # Remove reference of GPU Index from the IndexIDMap
+            faiss_gpu_build_index_output.index_id_map.index = None
 
             # Update the ID map index with the CPU index
             index_id_map = faiss_gpu_build_index_output.index_id_map
+
+            # Remove reference of the IndexIDMap from the GPU Build Index Output before cleanup
             faiss_gpu_build_index_output.index_id_map = None
+
             index_id_map.index = cpu_index
 
             # Free memory taken by GPU Index
-            del gpu_index
-            del faiss_gpu_build_index_output
+            faiss_gpu_build_index_output.cleanup()
 
             return FaissCpuBuildIndexOutput(
                 cpu_index=cpu_index, index_id_map=index_id_map
@@ -121,7 +125,7 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
                 cpu_build_index_output.index_id_map, cpu_index_output_file_path
             )
             # Free memory taken by CPU Index
-            del cpu_build_index_output
+            cpu_build_index_output.cleanup()
         except IOError as io_error:
             raise Exception(
                 f"Failed to write index to file {cpu_index_output_file_path}: {str(io_error)}"

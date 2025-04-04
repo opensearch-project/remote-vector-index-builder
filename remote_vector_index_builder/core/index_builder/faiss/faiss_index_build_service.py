@@ -107,14 +107,14 @@ class FaissIndexBuildService(IndexBuildService):
             # Clean up GPU Index Response if orchestrator failed after GPU Index Creation
             if faiss_gpu_build_index_output is not None:
                 try:
-                    del faiss_gpu_build_index_output
+                    faiss_gpu_build_index_output.cleanup()
                 except Exception as e:
                     print(f"Warning: Failed to clean up GPU index response: {str(e)}")
 
             # Clean up CPU Index Response if orchestrator failed after CPU Index Creation
             if faiss_cpu_build_index_output is not None:
                 try:
-                    del faiss_cpu_build_index_output
+                    faiss_cpu_build_index_output.cleanup()
                 except Exception as e:
                     print(f"Warning: Failed to clean up CPU index response: {str(e)}")
             raise Exception(
