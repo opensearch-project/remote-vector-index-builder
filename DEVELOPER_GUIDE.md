@@ -34,7 +34,7 @@ git clone https://github.com/[username]/remote-vector-index-builder.git
 #### Python Dependencies
 
 The following are commands to install dependencies during local development and testing.
-The required dependencies are installed during Docker image creation onto the image.
+The required dependencies are installed onto the Docker image during creation.
 
 Core Dependencies:
 ```
@@ -85,7 +85,7 @@ The [Faiss repository](https://github.com/facebookresearch/faiss/) is added as a
 ```
 git submodule update --init
 ```
-The Faiss Base Image can only be created on an NVIDIA GPU powered machine with CUDA Toolkit installed.
+The Faiss base image can only be created on an NVIDIA GPU powered machine with CUDA Toolkit installed.
 
 Please see the section [Provisioning an instance for development](#provisioning-an-instance-for-development) to provision an instance for development.
 
@@ -106,7 +106,7 @@ docker build  -f ./remote_vector_index_builder/core/Dockerfile . -t opensearchst
 
 ## Provisioning an instance for development
 
-A NVIDIA GPU Powered machine with CUDA Toolkit installed is required to build a Faiss Base Image, and to run the Docker images to build an index.
+A NVIDIA GPU powered machine with CUDA Toolkit installed is required to build a Faiss base Image, and to run the Docker images to build an index.
 
 Typically an [EC2 G5](https://aws.amazon.com/ec2/instance-types/g5/) 2xlarge instance running a Deep Learning OSS Nvidia Driver AMI, with Docker CLI installed is recommended for development use.
 
