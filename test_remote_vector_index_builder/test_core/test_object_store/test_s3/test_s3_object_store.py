@@ -59,25 +59,8 @@ def test_get_boto3_client():
         get_boto3_client("us-east-1", 3)
         assert mock_client.call_count == 2
 
-
-def test_get_boto3_client_with_local_stack():
-    with patch("boto3.client") as mock_client:
-        # Test caching behavior
-        get_boto3_client("us-west-2", 3, "t")
-        args = mock_client.call_args.kwargs
-        assert args["endpoint_url"] == S3ObjectStore.LOCAL_STACK_ENDPOINT
-
-        get_boto3_client("us-west-2", 3, "f")
-        args = mock_client.call_args.kwargs
-        assert "endpoint_url" not in args
-
-        get_boto3_client("us-west-2", 3, "false")
-        args = mock_client.call_args.kwargs
-        assert "endpoint_url" not in args
-
-        get_boto3_client("us-west-2", 3, "0")
-        args = mock_client.call_args.kwargs
-        assert "endpoint_url" not in args
+        get_boto3_client("us-east-1", 3, "test-url")
+        assert mock_client.call_count == 3
 
 
 def test_s3_object_store_initialization(index_build_parameters, object_store_config):

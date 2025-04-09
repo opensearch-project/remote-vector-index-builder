@@ -34,9 +34,9 @@ class IndexBuilder:
                 - Index path if successful, None otherwise
                 - Error message if failed, None otherwise
         """
-        integration_tests = os.environ.get("INTEGRATION_TESTS", None)
+        s3_endpoint_url = os.environ.get("S3_ENDPOINT_URL", None)
         result = run_tasks(
-            workflow.index_build_parameters, {"integration_tests": integration_tests}
+            workflow.index_build_parameters, {"S3_ENDPOINT_URL": s3_endpoint_url}
         )
         if not result.file_name:
             return False, None, result.error

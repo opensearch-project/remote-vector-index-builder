@@ -54,3 +54,5 @@ jobs:
         if: always()
         run: |
           docker logout
+  build-and-publish-api-image:
+    uses: ./.github/workflows/publish_remote_api_image.yml
