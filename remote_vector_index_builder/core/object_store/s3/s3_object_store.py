@@ -12,7 +12,7 @@ from functools import cache
 import math
 from io import BytesIO
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import boto3
 from boto3.s3.transfer import TransferConfig
@@ -46,17 +46,27 @@ def get_cpus(factor: float) -> int:
 
 
 @cache
-def get_boto3_client(region: str, retries: int) -> boto3.client:
+def get_boto3_client(
+    region: str, retries: int, integration_tests: Optional[str] = None
+) -> boto3.client:
     """Create or retrieve a cached boto3 S3 client.
 
     Args:
         region (str): AWS region name for the S3 client
         retries (int): Maximum number of retry attempts for failed requests
+        integration_tests (str): Determines if s3 local stack should be used, for integration tests
 
     Returns:
         boto3.client: Configured S3 client instance
     """
     config = Config(retries={"max_attempts": retries})
+    if integration_tests and integration_tests.lower() not in ("false", "0", "f"):
+        return boto3.client(
+            "s3",
+            config=config,
+            region_name=region,
+            endpoint_url=S3ObjectStore.LOCAL_STACK_ENDPOINT,
+        )
     return boto3.client("s3", config=config, region_name=region)
 
 
@@ -75,11 +85,15 @@ class S3ObjectStore(ObjectStore):
             Includes encryption and checksum settings.
         DEFAULT_UPLOAD_ARGS (dict): Default boto3 ALLOWED_UPLOAD_ARGS values.
             Includes encryption and checksum settings
+        LOCAL_STACK_ENDPOINT (str): Endpoint URL for LocalStack S3 service used during
+            integration testing (default: 'http://172.17.0.1:4566')
 
     Args:
         index_build_params (IndexBuildParameters): Parameters for the index building process
         object_store_config (Dict[str, Any]): Configuration options for S3 interactions
     """
+
+    LOCAL_STACK_ENDPOINT = "http://172.17.0.1:4566"
 
     def __init__(
         self,
@@ -122,7 +136,11 @@ class S3ObjectStore(ObjectStore):
         self.max_retries = object_store_config.get("retries", 3)
         self.region = object_store_config.get("region", "us-west-2")
 
-        self.s3_client = get_boto3_client(region=self.region, retries=self.max_retries)
+        self.s3_client = get_boto3_client(
+            region=self.region,
+            retries=self.max_retries,
+            integration_tests=object_store_config.get("integration_tests"),
+        )
 
         download_transfer_config = object_store_config.get(
             "download_transfer_config", {}

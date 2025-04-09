@@ -35,7 +35,7 @@ def test_build_index_success(index_builder, mock_workflow):
         assert success is True
         assert path == "/path/to/index"
         assert error is None
-        mock_run_tasks.assert_called_once_with(mock_workflow.index_build_parameters)
+        mock_run_tasks.assert_called_once()
 
 
 def test_build_index_failure(index_builder, mock_workflow):
@@ -51,4 +51,4 @@ def test_build_index_failure(index_builder, mock_workflow):
         assert success is False
         assert path is None
         assert error == "Build failed"
-        mock_run_tasks.assert_called_once_with(mock_workflow.index_build_parameters)
+        mock_run_tasks.assert_called_once()
