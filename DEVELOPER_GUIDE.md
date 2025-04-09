@@ -106,7 +106,7 @@ docker build  -f ./remote_vector_index_builder/core/Dockerfile . -t opensearchst
 
 ## Provisioning an instance for development
 
-A NVIDIA GPU powered machine with CUDA Toolkit installed is required to build a Faiss base Image, and to run the Docker images to build an index.
+A NVIDIA GPU powered machine with CUDA Toolkit installed is required to build a Faiss base Image and to run the Docker images to build an index.
 
 Typically an [EC2 G5](https://aws.amazon.com/ec2/instance-types/g5/) 2xlarge instance running a Deep Learning OSS Nvidia Driver AMI, with Docker CLI installed is recommended for development use.
 
