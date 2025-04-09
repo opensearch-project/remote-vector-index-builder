@@ -9,6 +9,7 @@
 - [Building Docker Images](#building-docker-images)
     - [Faiss Base Image](#faiss-base-image)
     - [Core Image](#core-image)
+- [Provisioning an Instance for Development](#provisioning-an-instance-for-development)
 - [Memory Profiling](#memory-profiling)
     - [GPU Memory Profiling with NVIDIA SMI](#gpu-memory-profiling-with-nvidia-smi)
     - [CPU Memory Profiling with memory_profiler](#cpu-memory-profiling-with-memory_profiler)
@@ -31,6 +32,10 @@ git clone https://github.com/[username]/remote-vector-index-builder.git
 ### Install Prerequisites
 
 #### Python Dependencies
+
+The following are commands to install dependencies during local development and testing.
+The required dependencies are installed during Docker image creation onto the image.
+
 Core Dependencies:
 ```
 pip install -r remote_vector_index_builder/core/requirements.txt
@@ -65,7 +70,7 @@ The static type checking can be done with:
 ```
 mypy remote_vector_index_builder/ test_remote_vector_index_builder/
 ```
-The python tests can be run with:
+The Python tests can be run with:
 ```
 pytest test_remote_vector_index_builder/
 ```
@@ -101,7 +106,7 @@ docker build  -f ./remote_vector_index_builder/core/Dockerfile . -t opensearchst
 
 ## Provisioning an instance for development
 
-A NVIDIA GPU Powered machine with CUDA Toolkit installed is required to build a Faiss Base Image, and to run the docker images to build an index.
+A NVIDIA GPU Powered machine with CUDA Toolkit installed is required to build a Faiss Base Image, and to run the Docker images to build an index.
 
 Typically an [EC2 G5](https://aws.amazon.com/ec2/instance-types/g5/) 2xlarge instance running a Deep Learning OSS Nvidia Driver AMI, with Docker CLI installed is recommended for development use.
 
@@ -113,24 +118,15 @@ Simple memory profiling can be done during development to get memory usage stati
 
 ### GPU Memory Profiling with NVIDIA SMI
 
-1. Install [py3nvml](https://pypi.org/project/py3nvml/):
+1. Install [py3nvml](https://pypi.org/project/py3nvml/): In [`/remote_vector_index_builder/core/requirements.txt`](/remote_vector_index_builder/core/requirements.txt) add py3nvml on a newline.
 
-In [`/remote_vector_index_builder/core/requirements.txt`](/remote_vector_index_builder/core/requirements.txt) add py3nvml on a newline.
-
-2. Run the following command:
-```
-pip install --no-cache-dir --upgrade -r /remote_vector_index_builder/core/requirements.txt
-```
-
-3. Add import statement and initialize method in the file containing the driver code.
+2. Add import statement and initialize method in the file containing the driver code.
 ```
 from py3nvml import nvidia_smi
 nvidia_smi.nvmlInit()
 ```
 
-4. Define and call the below method wherever necessary.
-
-e.g. before and after calling the GPU index cleanup method.
+3. Define and call the below method wherever necessary. e.g. before and after calling the GPU index cleanup method.
 ```
 from py3nvml import nvidia_smi
 
