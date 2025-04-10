@@ -195,14 +195,15 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
             raise Exception(f"Failed to create faiss GPU index config: {str(e)}") from e
 
         try:
-            gpu_resources = faiss.StandardGpuResources()
-
             # Configure the distance metric
             metric = configure_metric(space_type)
 
             # Create GPU CAGRA index with specified configuration
             faiss_gpu_index = faiss.GpuIndexCagra(
-                gpu_resources, dataset_dimension, metric, faiss_gpu_index_config
+                faiss.StandardGpuResources(),
+                dataset_dimension,
+                metric,
+                faiss_gpu_index_config,
             )
 
             # Create ID mapping layer to preserve document IDs
@@ -218,7 +219,9 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
         except Exception as e:
             if faiss_gpu_index is not None:
                 faiss_gpu_index.thisown = True
-                del faiss_gpu_index
+                faiss_gpu_index.__swig_destroy__(faiss_gpu_index)
             if faiss_index_id_map is not None:
-                del faiss_index_id_map
+                faiss_index_id_map.thisown = True
+                faiss_index_id_map.own_fields = False
+                faiss_index_id_map.__swig_destroy__(faiss_index_id_map)
             raise Exception(f"Failed to create faiss GPU index: {str(e)}") from e

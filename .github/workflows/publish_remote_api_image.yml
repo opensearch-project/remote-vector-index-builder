@@ -7,6 +7,12 @@ on:
     paths:
       - 'remote_vector_index_builder/app/**'
       - '.github/workflows/publish_remote_api_image.yml'
+  workflow_call: # enables workflow to be reused
+    secrets:
+      REMOTE_VECTOR_DOCKER_USERNAME:
+        required: true
+      REMOTE_VECTOR_DOCKER_ROLE:
+        required: true
 
 permissions:
   id-token: write

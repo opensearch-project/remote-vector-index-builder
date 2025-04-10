@@ -6,6 +6,7 @@
 # compatible open source license.
 
 import logging
+import os
 from typing import Optional, Tuple
 from app.models.workflow import BuildWorkflow
 from core.tasks import run_tasks
@@ -33,7 +34,10 @@ class IndexBuilder:
                 - Index path if successful, None otherwise
                 - Error message if failed, None otherwise
         """
-        result = run_tasks(workflow.index_build_parameters)
+        s3_endpoint_url = os.environ.get("S3_ENDPOINT_URL", None)
+        result = run_tasks(
+            workflow.index_build_parameters, {"S3_ENDPOINT_URL": s3_endpoint_url}
+        )
         if not result.file_name:
             return False, None, result.error
         return True, result.file_name, None
