@@ -106,9 +106,9 @@ docker build  -f ./remote_vector_index_builder/core/Dockerfile . -t opensearchst
 
 ## Provisioning an instance for development
 
-A NVIDIA GPU powered machine with CUDA Toolkit installed is required to build a Faiss base Image and to run the Docker images to build an index.
+A NVIDIA GPU powered machine with CUDA Toolkit installed is required to build a Faiss base image and to run the Docker images to build an index.
 
-Typically an [EC2 G5](https://aws.amazon.com/ec2/instance-types/g5/) 2xlarge instance running a Deep Learning OSS Nvidia Driver AMI, with Docker CLI installed is recommended for development use.
+Typically an [EC2 G5](https://aws.amazon.com/ec2/instance-types/g5/) 2xlarge instance running a Deep Learning OSS Nvidia Driver AMI with Docker CLI installed is recommended for development use.
 
 [Setup an EC2 Instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EC2_GetStarted.html)
 
@@ -118,7 +118,7 @@ Simple memory profiling can be done during development to get memory usage stati
 
 ### GPU Memory Profiling with NVIDIA SMI
 
-1. Install [py3nvml](https://pypi.org/project/py3nvml/): In [`/remote_vector_index_builder/core/requirements.txt`](/remote_vector_index_builder/core/requirements.txt) add py3nvml on a newline.
+1. Install [py3nvml](https://pypi.org/project/py3nvml/): In [`/remote_vector_index_builder/core/requirements.txt`](/remote_vector_index_builder/core/requirements.txt) add `py3nvml` on a newline.
 
 2. Add import statement and initialize method in the file containing the driver code.
 ```
