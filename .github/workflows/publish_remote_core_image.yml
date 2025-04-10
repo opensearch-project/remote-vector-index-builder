@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - github-ci-fix
     paths:
       - 'remote_vector_index_builder/core/**'
       - '.github/workflows/publish_remote_core_image.yml'
