@@ -1,20 +1,26 @@
-name: Build and Publish Remote-Vector-Index-Builder Core Image to Docker
+name: Build and Publish Remote-Vector-Index-Builder API Image to Docker
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'remote_vector_index_builder/core/**'
-      - '.github/workflows/publish_remote_core_image.yml'
+      - 'remote_vector_index_builder/app/**'
+      - '.github/workflows/publish_remote_api_image.yml'
+  workflow_call: # enables workflow to be reused
+    secrets:
+      REMOTE_VECTOR_DOCKER_USERNAME:
+        required: true
+      REMOTE_VECTOR_DOCKER_ROLE:
+        required: true
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  build-and-publish-core-image:
-    name: Build and Publish Remote-Vector-Index-Builder Core Image
+  build-and-publish-api-image:
+    name: Build and Publish Remote-Vector-Index-Builder API Image
     if: github.repository == 'opensearch-project/remote-vector-index-builder'
     runs-on: ubuntu-latest
 
@@ -24,8 +30,8 @@ jobs:
 
       - name: Build Docker Image
         run : |
-          docker build  -f ./remote_vector_index_builder/core/Dockerfile . -t opensearchstaging/remote-vector-index-builder:core-1.0.0
-          docker tag opensearchstaging/remote-vector-index-builder:core-1.0.0 opensearchstaging/remote-vector-index-builder:core-latest
+          docker build  -f ./remote_vector_index_builder/app/Dockerfile . -t opensearchstaging/remote-vector-index-builder:api-1.0.0
+          docker tag opensearchstaging/remote-vector-index-builder:api-1.0.0 opensearchstaging/remote-vector-index-builder:api-latest
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -48,14 +54,9 @@ jobs:
 
       - name: Push Docker Image
         run : |
-          docker push opensearchstaging/remote-vector-index-builder:core-1.0.0
-          docker push opensearchstaging/remote-vector-index-builder:core-latest
+          docker push opensearchstaging/remote-vector-index-builder:api-1.0.0
+          docker push opensearchstaging/remote-vector-index-builder:api-latest
       - name: Runner Cleanups
         if: always()
         run: |
           docker logout
-  build-and-publish-api-image:
-    uses: ./.github/workflows/publish_remote_api_image.yml
-    secrets:
-      REMOTE_VECTOR_DOCKER_ROLE: ${{ secrets.REMOTE_VECTOR_DOCKER_ROLE }}
-      REMOTE_VECTOR_DOCKER_USERNAME: ${{ secrets.REMOTE_VECTOR_DOCKER_USERNAME }}

@@ -12,7 +12,7 @@ from functools import cache
 import math
 from io import BytesIO
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import boto3
 from boto3.s3.transfer import TransferConfig
@@ -46,18 +46,29 @@ def get_cpus(factor: float) -> int:
 
 
 @cache
-def get_boto3_client(region: str, retries: int) -> boto3.client:
+def get_boto3_client(
+    region: str, retries: int, endpoint_url: Optional[str] = None
+) -> boto3.client:
     """Create or retrieve a cached boto3 S3 client.
 
     Args:
         region (str): AWS region name for the S3 client
         retries (int): Maximum number of retry attempts for failed requests
+        endpoint_url (str): s3 endpoint URL. Defaults to None, in which case boto3
+            automatically constructs the appropriate URL to use when communicating
+            with a service. During integration testing, this can be set to the endpoint URL
+            for LocalStack S3 service.
 
     Returns:
         boto3.client: Configured S3 client instance
     """
     config = Config(retries={"max_attempts": retries})
-    return boto3.client("s3", config=config, region_name=region)
+    return boto3.client(
+        "s3",
+        config=config,
+        region_name=region,
+        endpoint_url=endpoint_url,
+    )
 
 
 class S3ObjectStore(ObjectStore):
@@ -122,7 +133,11 @@ class S3ObjectStore(ObjectStore):
         self.max_retries = object_store_config.get("retries", 3)
         self.region = object_store_config.get("region", "us-west-2")
 
-        self.s3_client = get_boto3_client(region=self.region, retries=self.max_retries)
+        self.s3_client = get_boto3_client(
+            region=self.region,
+            retries=self.max_retries,
+            endpoint_url=object_store_config.get("S3_ENDPOINT_URL"),
+        )
 
         download_transfer_config = object_store_config.get(
             "download_transfer_config", {}

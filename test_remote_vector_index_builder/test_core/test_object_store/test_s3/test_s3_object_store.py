@@ -59,6 +59,9 @@ def test_get_boto3_client():
         get_boto3_client("us-east-1", 3)
         assert mock_client.call_count == 2
 
+        get_boto3_client("us-east-1", 3, "test-url")
+        assert mock_client.call_count == 3
+
 
 def test_s3_object_store_initialization(index_build_parameters, object_store_config):
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
