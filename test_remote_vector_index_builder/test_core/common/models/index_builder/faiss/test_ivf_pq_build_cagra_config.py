@@ -27,6 +27,7 @@ class TestIVFPQBuildCagraConfig:
             "pq_bits": 6,
             "pq_dim": 16,
             "conservative_memory_allocation": False,
+            "force_random_rotation": True,
         }
 
     def test_default_initialization(self, default_config):
@@ -36,6 +37,7 @@ class TestIVFPQBuildCagraConfig:
         assert default_config.pq_bits == 8
         assert default_config.pq_dim == 0
         assert default_config.conservative_memory_allocation is True
+        assert default_config.force_random_rotation is False
 
     def test_custom_initialization(self, custom_params):
         config = IVFPQBuildCagraConfig(**custom_params)
@@ -97,6 +99,7 @@ class TestIVFPQBuildCagraConfig:
             config.conservative_memory_allocation
             == custom_params["conservative_memory_allocation"]
         )
+        assert config.force_random_rotation == custom_params["force_random_rotation"]
 
     def test_from_dict_partial(self):
         partial_params = {"n_lists": 2048, "kmeans_n_iters": 30}
@@ -107,3 +110,4 @@ class TestIVFPQBuildCagraConfig:
         assert config.pq_bits == 8  # default value
         assert config.pq_dim == 0  # default value
         assert config.conservative_memory_allocation is True  # default value
+        assert config.force_random_rotation is False
