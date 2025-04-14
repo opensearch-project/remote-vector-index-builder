@@ -144,7 +144,7 @@ class IndexBuildParameters(BaseModel):
     doc_id_path: str
     tenant_id: str = ""
     dimension: int = Field(gt=0)
-    doc_count: int = Field(gt=1)
+    doc_count: int = Field(gt=4)
     data_type: DataType = DataType.FLOAT
     engine: Engine = Engine.FAISS
     index_parameters: IndexParameters = Field(default_factory=IndexParameters)

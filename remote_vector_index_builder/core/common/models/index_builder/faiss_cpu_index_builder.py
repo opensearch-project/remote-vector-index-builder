@@ -6,7 +6,7 @@
 # compatible open source license.
 
 from abc import ABC, abstractmethod
-from core.common.models import (
+from core.common.models.index_builder import (
     FaissCpuBuildIndexOutput,
     FaissGpuBuildIndexOutput,
 )

@@ -14,22 +14,6 @@ from core.common.models.index_build_parameters import DataType
 from core.common.models.vectors_dataset import VectorsDataset
 
 
-@pytest.fixture
-def sample_vectors():
-    # Create sample float32 vectors (2 vectors of dimension 3)
-    return np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype="<f4")
-
-
-@pytest.fixture
-def sample_doc_ids():
-    return np.array([1, 2], dtype="<i4")
-
-
-@pytest.fixture
-def vectors_dataset(sample_vectors, sample_doc_ids):
-    return VectorsDataset(vectors=sample_vectors, doc_ids=sample_doc_ids)
-
-
 def test_initialization(sample_vectors, sample_doc_ids):
     dataset = VectorsDataset(vectors=sample_vectors, doc_ids=sample_doc_ids)
     assert np.array_equal(dataset.vectors, sample_vectors)
@@ -80,20 +64,15 @@ def test_check_dimensions_invalid():
         VectorsDataset.check_dimensions(vectors, 10)
 
 
-@pytest.mark.parametrize("vector_dtype", [DataType.FLOAT])
-def test_parse_valid_data(vector_dtype):
+def test_parse_valid_data(sample_vectors, sample_doc_ids):
     # Prepare test data
-    dimension = 3
-    doc_count = 2
-
-    arr = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
-
-    test_vectors = np.array(arr, dtype=VectorsDataset.get_numpy_dtype(vector_dtype))
-    test_doc_ids = np.array([1, 2], dtype="<i4")
+    dimension = len(sample_vectors[0])
+    doc_count = len(sample_vectors)
+    vector_dtype = DataType.FLOAT
 
     # Convert to binary
-    vectors_binary = BytesIO(test_vectors.tobytes())
-    doc_ids_binary = BytesIO(test_doc_ids.tobytes())
+    vectors_binary = BytesIO(sample_vectors.tobytes())
+    doc_ids_binary = BytesIO(sample_doc_ids.tobytes())
 
     # Parse
     dataset = VectorsDataset.parse(
@@ -109,8 +88,8 @@ def test_parse_valid_data(vector_dtype):
     assert dataset.vectors.shape == (doc_count, dimension)
     assert len(dataset.doc_ids) == doc_count
     assert len(dataset.vectors) == doc_count
-    assert np.array_equal(dataset.doc_ids, test_doc_ids)
-    assert np.array_equal(dataset.vectors, test_vectors)
+    assert np.array_equal(dataset.doc_ids, sample_doc_ids)
+    assert np.array_equal(dataset.vectors, sample_vectors)
 
     dataset.free_vectors_space()
     vectors_binary.close()
@@ -120,12 +99,12 @@ def test_parse_valid_data(vector_dtype):
 def test_parse_invalid_doc_count():
     with pytest.raises(VectorsDatasetError):
         vectors = BytesIO(np.zeros(6, dtype="<f4").tobytes())
-        doc_ids = BytesIO(np.array([1], dtype="<i4").tobytes())
+        doc_ids = BytesIO(np.array([1, 2, 3, 4, 5, 6], dtype="<i4").tobytes())
         dataset = VectorsDataset.parse(
             vectors=vectors,
             doc_ids=doc_ids,
-            dimension=2,
-            doc_count=2,
+            dimension=1,
+            doc_count=5,
             vector_dtype=DataType.FLOAT,
         )
         dataset.free_vectors_space()
@@ -135,13 +114,13 @@ def test_parse_invalid_doc_count():
 
 def test_parse_invalid_vector_dimensions():
     with pytest.raises(VectorsDatasetError):
-        vectors = BytesIO(np.zeros(4, dtype="<f4").tobytes())
-        doc_ids = BytesIO(np.array([1, 2], dtype="<i4").tobytes())
+        vectors = BytesIO(np.zeros(5, dtype="<f4").tobytes())
+        doc_ids = BytesIO(np.array([1, 2, 3, 4, 5], dtype="<i4").tobytes())
         dataset = VectorsDataset.parse(
             vectors=vectors,
             doc_ids=doc_ids,
-            dimension=3,  # Expecting 6 values (2*3), but only provided 4
-            doc_count=2,
+            dimension=2,  # Expecting 10 values (5*2), but only provided 5
+            doc_count=5,
             vector_dtype=DataType.FLOAT,
         )
         dataset.free_vectors_space()
@@ -155,12 +134,12 @@ def test_parse_invalid_data():
         mock_frombuffer.side_effect = ValueError("Invalid data")
         with pytest.raises(VectorsDatasetError):
             vectors = BytesIO(np.zeros(6, dtype="<f4").tobytes())
-            doc_ids = BytesIO(np.array([1, 2], dtype="<i4").tobytes())
+            doc_ids = BytesIO(np.array([1, 2, 3, 4, 5, 6], dtype="<i4").tobytes())
             dataset = VectorsDataset.parse(
                 vectors=vectors,
                 doc_ids=doc_ids,
-                dimension=3,
-                doc_count=2,
+                dimension=1,
+                doc_count=6,
                 vector_dtype=DataType.FLOAT,
             )
             dataset.free_vectors_space()

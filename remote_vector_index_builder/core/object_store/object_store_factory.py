@@ -8,7 +8,7 @@
 from typing import Any, Dict
 
 from core.common.exceptions import UnsupportedObjectStoreTypeError
-from core.common.models.index_build_parameters import IndexBuildParameters
+from core.common.models import IndexBuildParameters
 from core.object_store.object_store import ObjectStore
 from core.object_store.s3.s3_object_store import S3ObjectStore
 from core.object_store.types import ObjectStoreType

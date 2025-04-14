@@ -10,12 +10,15 @@ from typing import Dict, Any
 from dataclasses import field, dataclass
 
 from core.common.models import (
-    CagraGraphBuildAlgo,
     VectorsDataset,
     SpaceType,
+)
+from core.common.models.index_builder import (
+    CagraGraphBuildAlgo,
     FaissGpuBuildIndexOutput,
     FaissGPUIndexBuilder,
 )
+
 from core.index_builder.index_builder_utils import configure_metric
 from .ivf_pq_build_cagra_config import IVFPQBuildCagraConfig
 from .ivf_pq_search_cagra_config import IVFPQSearchCagraConfig

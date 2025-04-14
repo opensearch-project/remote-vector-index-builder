@@ -19,7 +19,7 @@ from boto3.s3.transfer import TransferConfig
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from core.common.exceptions import BlobError
-from core.common.models.index_build_parameters import IndexBuildParameters
+from core.common.models import IndexBuildParameters
 from core.object_store.object_store import ObjectStore
 
 logger = logging.getLogger(__name__)

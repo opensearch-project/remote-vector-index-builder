@@ -33,8 +33,8 @@ from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, Dict, Optional
 
-from core.common.models.index_build_parameters import IndexBuildParameters
-from core.common.models.vectors_dataset import VectorsDataset
+from core.common.models import IndexBuildParameters
+from core.common.models import VectorsDataset
 from core.index_builder.faiss.faiss_index_build_service import FaissIndexBuildService
 from core.object_store.object_store_factory import ObjectStoreFactory
 

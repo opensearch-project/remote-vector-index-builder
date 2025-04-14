@@ -15,7 +15,7 @@ Request Parameters
     "doc_id_path" : "DocIdPath", // File path all doc Ids are written to
     "tenant_id": "UniqueClusterID", // Unique identifier for the cluster making the request
     "dimension": 768,
-    "doc_count": 1000000,
+    "doc_count": 1000000, // Must be greater than 4
     "data_type": "float",
     "engine": "faiss",
     "index_parameters": {
@@ -41,6 +41,7 @@ Request Response:
 * The top two parameters are derived by the KNN plugin from the customer's repo setting. `container_name` is used to specifically refer to the "bucket" (or non-S3 equivalent), rather than the name of the repository itself.
 * Tenant ID is included to be used for billing, authorization, etc
 * Dimension, doc count, and data type are specifically placed on the first JSON level so the build service can quickly use them first to calculate workload size
+* Doc count must be greater than 4, since doc counts of 1, 3, and 4 have been observed to consistently fail during index builds
 * Engine: If in the future we have different workers hosting different engines, like Lucene etc. this parameter will act as an extension point. This is not a required parameter.
 * Space type is inside `index_parameters` since it is only used in index creation
 * By including an `algorithm` field in index parameters, we leave the door open for IVF, future algorithms

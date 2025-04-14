@@ -8,7 +8,7 @@
 import faiss
 from dataclasses import dataclass
 from typing import Dict, Any
-from core.common.models import (
+from core.common.models.index_builder import (
     FaissCpuBuildIndexOutput,
     FaissGpuBuildIndexOutput,
     FaissCPUIndexBuilder,

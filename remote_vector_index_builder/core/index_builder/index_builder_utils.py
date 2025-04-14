@@ -10,7 +10,7 @@ import math
 import faiss
 
 
-from core.common.models.index_build_parameters import (
+from core.common.models import (
     SpaceType,
 )
 

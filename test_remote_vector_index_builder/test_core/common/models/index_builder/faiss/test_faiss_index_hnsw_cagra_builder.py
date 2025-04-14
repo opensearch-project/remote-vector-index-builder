@@ -12,7 +12,10 @@ from unittest.mock import patch
 import os
 
 from core.common.models.index_builder.faiss import FaissIndexHNSWCagraBuilder
-from core.common.models import FaissGpuBuildIndexOutput, FaissCpuBuildIndexOutput
+from core.common.models.index_builder import (
+    FaissGpuBuildIndexOutput,
+    FaissCpuBuildIndexOutput,
+)
 
 
 class TestFaissIndexHNSWCagraBuilder:

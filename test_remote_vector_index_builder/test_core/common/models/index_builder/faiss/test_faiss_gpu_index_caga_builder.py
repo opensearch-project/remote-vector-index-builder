@@ -7,7 +7,14 @@
 
 import faiss
 import pytest
-from core.common.models import CagraGraphBuildAlgo, SpaceType, FaissGpuBuildIndexOutput
+
+from core.common.models import SpaceType
+
+from core.common.models.index_builder import (
+    CagraGraphBuildAlgo,
+    FaissGpuBuildIndexOutput,
+)
+
 from core.common.models.index_builder.faiss import (
     IVFPQBuildCagraConfig,
     IVFPQSearchCagraConfig,

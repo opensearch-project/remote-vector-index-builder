@@ -10,6 +10,9 @@ from abc import ABC, abstractmethod
 from core.common.models import (
     SpaceType,
     VectorsDataset,
+)
+
+from core.common.models.index_builder import (
     FaissGpuBuildIndexOutput,
 )
 

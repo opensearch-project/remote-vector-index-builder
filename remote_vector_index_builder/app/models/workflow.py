@@ -6,7 +6,7 @@
 # compatible open source license.
 
 from pydantic import BaseModel
-from core.common.models.index_build_parameters import IndexBuildParameters
+from core.common.models import IndexBuildParameters
 
 
 class BuildWorkflow(BaseModel):
