@@ -167,12 +167,23 @@ Follow the steps below to use run the API image locally. Note that s3 is current
 1. [Provision an instance for development](#provisioning-an-instance-for-development)
 2. Create a s3 bucket, upload vector and doc id binaries to the bucket
 3. Ensure the instance has AWS credentials to connect with the s3 bucket
-    - Use any option from 3-11: https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html#configuring-credentials
-4. Clone the repository to the instance : `git clone https://github.com/opensearch-project/remote-vector-index-builder.git`
-5. Change into the top-level directory: `cd remote-vector-index-builder`
-6. Build the docker image: `docker build  -f ./remote_vector_index_builder/app/Dockerfile . -t opensearchstaging/remote-vector-index-builder:api-latest`
-    - Note that any image tag can be used, not just `opensearchstaging/remote-vector-index-builder:api-latest`
-7. Run the docker image: `docker run --gpus all -p 80:1025 opensearchstaging/remote-vector-index-builder:api-latest`
+    - Use any option from 3-11: [Configuring credentials](https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html#configuring-credentials)
+4. Clone the repository to the instance
+    ```
+    git clone https://github.com/opensearch-project/remote-vector-index-builder.git
+    ```
+5. Change into the top-level directory:
+    ```
+    cd remote-vector-index-builder
+    ```
+6. Build the docker image. Note that any image tag can be used, not just `opensearchstaging/remote-vector-index-builder:api-latest`: 
+    ```
+    docker build  -f ./remote_vector_index_builder/app/Dockerfile . -t opensearchstaging/remote-vector-index-builder:api-latest
+    ```
+7. Run the docker image: 
+    ```
+    docker run --gpus all -p 80:1025 opensearchstaging/remote-vector-index-builder:api-latest
+    ```
 8. In a separate terminal, issue a build request:
     ```
     curl -XPOST "http://0.0.0.0:80/_build" \
@@ -189,7 +200,10 @@ Follow the steps below to use run the API image locally. Note that s3 is current
     '
     ```
    This will return a job id, if the build request was successfully submitted.
-9. Check the status of your build request: `curl -XGET "http://0.0.0.0:80/_status/<job_id>"`
+9. Check the status of your build request:
+    ```
+    curl -XGET "http://0.0.0.0:80/_status/<job_id>"
+    ```
 
 ## Memory Profiling
 
