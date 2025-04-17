@@ -1,0 +1,32 @@
+version: "3.8"
+
+services:
+  localstack:
+    container_name: localstack-main
+    image: localstack/localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+    networks:
+      - vector-network
+  remote-vector-index-builder:
+    container_name: remote-vector-index-builder
+    image: opensearchstaging/remote-vector-index-builder:e2e-latest
+    environment:
+      - S3_ENDPOINT_URL=http://localstack-main:4566
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - vector-network
+    depends_on:
+      - localstack
+
+networks:
+  vector-network:
+    driver: bridge
