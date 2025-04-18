@@ -5,8 +5,7 @@
 # this file be licensed under the Apache-2.0 license or a
 # compatible open source license.
 
-from io import BytesIO
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock
 
 import numpy as np
 import pytest
@@ -16,10 +15,16 @@ from core.tasks import (
     create_vectors_dataset,
     run_tasks,
     upload_index,
+    _get_index_path_from_vector_path,
+    _get_numpy_dtype,
+    _check_dimensions,
 )
 from core.common.exceptions import BlobError
 from core.common.models.vectors_dataset import VectorsDataset
 from core.object_store.object_store import ObjectStore
+from core.binary_source.binary_source import BinarySource
+from core.common.models.index_build_parameters import DataType
+from core.binary_source.binary_source_factory import StorageMode
 
 
 @pytest.fixture
@@ -34,79 +39,104 @@ def mock_object_store_factory():
 
 
 @pytest.fixture
-def mock_vectors_dataset_parse():
-    with patch("core.tasks.VectorsDataset.parse") as mock:
-        yield mock
+def mock_binary_source():
+    binary_source = Mock(spec=BinarySource)
+    binary_source.transform_to_numpy_array = MagicMock()
+    return binary_source
 
 
 @pytest.fixture
-def mock_vectors_dataset():
-    return Mock(spec=VectorsDataset, vectors=np.array([]), doc_ids=np.array([]))
+def mock_vectors_dataset(sample_vectors, sample_doc_ids):
+    return Mock(spec=VectorsDataset, vectors=sample_vectors, doc_ids=sample_doc_ids)
 
 
-def test_successful_creation(
+def test_create_vectors_dataset(
     mock_object_store_factory,
-    mock_vectors_dataset_parse,
     mock_object_store,
+    mock_binary_source,
     index_build_parameters,
     object_store_config,
+    sample_doc_ids,
+    sample_vectors,
 ):
     # Setup
     mock_object_store_factory.return_value = mock_object_store
-    mock_vectors_dataset_parse.return_value = Mock(spec=VectorsDataset)
 
-    vectors = BytesIO()
-    doc_ids = BytesIO()
+    # Configure mocks for transform_to_numpy_array calls
+    mock_binary_source.transform_to_numpy_array.side_effect = [
+        sample_doc_ids,  # First call for doc_ids
+        sample_vectors.flatten(),  # Second call for vectors (flattened)
+    ]
+
     # Execute
     result = create_vectors_dataset(
-        index_build_parameters, object_store_config, vectors, doc_ids
+        index_build_parameters,
+        object_store_config,
+        mock_binary_source,
+        mock_binary_source,
     )
-
-    vectors.close()
-    doc_ids.close()
 
     # Verify
     mock_object_store_factory.assert_called_once_with(
         index_build_parameters, object_store_config
     )
-    assert mock_object_store.read_blob.call_count == 2
-    mock_vectors_dataset_parse.assert_called_once()
+    # Check correct paths are used from index_build_parameters
+    mock_binary_source.transform_to_numpy_array.assert_any_call(
+        mock_object_store,
+        index_build_parameters.doc_id_path,
+        "<i4",
+        index_build_parameters.doc_count,
+    )
+    mock_binary_source.transform_to_numpy_array.assert_any_call(
+        mock_object_store,
+        index_build_parameters.vector_path,
+        "<f4",
+        index_build_parameters.doc_count * index_build_parameters.dimension,
+    )
     assert isinstance(result, VectorsDataset)
+    assert result.doc_ids is sample_doc_ids
+    np.testing.assert_array_equal(result.vectors, sample_vectors)
 
-    result.free_vectors_space()
 
-
-def test_download_blob_error_handling(
+def test_create_vectors_dataset_dimension_error(
     mock_object_store_factory,
     mock_object_store,
+    mock_binary_source,
     index_build_parameters,
     object_store_config,
 ):
     # Setup
     mock_object_store_factory.return_value = mock_object_store
-    mock_object_store.read_blob.side_effect = BlobError("Failed to read blob")
+    wrong_size_doc_ids = np.array([1, 2, 3], dtype=np.int32)  # Wrong size
 
-    vectors = BytesIO()
-    doc_ids = BytesIO()
+    mock_binary_source.transform_to_numpy_array.return_value = wrong_size_doc_ids
 
-    # Execute and verify
-    with pytest.raises(BlobError):
+    # Execute and verify - should match the doc_count from index_build_parameters
+    with pytest.raises(
+        ValueError,
+        match=f"Expected {index_build_parameters.doc_count} elements, but got 3",
+    ):
         create_vectors_dataset(
-            index_build_parameters, object_store_config, vectors, doc_ids
+            index_build_parameters,
+            object_store_config,
+            mock_binary_source,
+            mock_binary_source,
         )
 
-    vectors.close()
-    doc_ids.close()
+
+def test_build_index(index_build_parameters, mock_vectors_dataset):
+    with patch("core.tasks.FaissIndexBuildService.build_index") as mock_build:
+        local_path = "/tmp/index"
+        # Execute
+        build_index(index_build_parameters, mock_vectors_dataset, local_path)
+
+        # Verify
+        mock_build.assert_called_once_with(
+            index_build_parameters, mock_vectors_dataset, local_path
+        )
 
 
-def test_successful_build(index_build_parameters, mock_vectors_dataset):
-
-    local_path = "/tmp/index"
-    # Execute
-    build_index(index_build_parameters, mock_vectors_dataset, local_path)
-
-
-def test_successful_upload(
+def test_upload_index(
     mock_object_store_factory,
     mock_object_store,
     index_build_parameters,
@@ -117,16 +147,19 @@ def test_successful_upload(
     local_path = "/tmp/index"
 
     # Execute
-    upload_index(index_build_parameters, object_store_config, local_path)
+    result = upload_index(index_build_parameters, object_store_config, local_path)
 
     # Verify
     mock_object_store_factory.assert_called_once_with(
         index_build_parameters, object_store_config
     )
 
-    vector_name = index_build_parameters.vector_path.split(".knnvec")[0]
-    remote_path = vector_name + "." + index_build_parameters.engine
-    mock_object_store.write_blob.assert_called_once_with(local_path, remote_path)
+    # Use the vector_path from index_build_parameters
+    expected_remote_path = "vec.faiss"  # Derived from vec.knnvec in the fixture
+    mock_object_store.write_blob.assert_called_once_with(
+        local_path, expected_remote_path
+    )
+    assert result == expected_remote_path
 
 
 def test_upload_blob_error_handling(
@@ -145,25 +178,33 @@ def test_upload_blob_error_handling(
         upload_index(index_build_parameters, object_store_config, local_path)
 
 
-def test_successful_task_execution(index_build_parameters, mock_vectors_dataset):
+def test_run_tasks_successful(index_build_parameters, mock_vectors_dataset):
+    # Create proper context manager mocks
+    mock_binary_source = MagicMock(spec=BinarySource)
+
     with patch("core.tasks.create_vectors_dataset") as mock_create_dataset, patch(
         "core.tasks.build_index"
     ) as mock_build_index, patch("core.tasks.upload_index") as mock_upload_index, patch(
         "os.remove"
     ) as mock_os_remove, patch(
         "os.makedirs"
-    ) as mock_os_makedirs:
+    ) as mock_os_makedirs, patch(
+        "core.binary_source.binary_source_factory.BinarySourceFactory.create_binary_source"
+    ) as mock_factory:
 
-        # Setup mocks
+        # Set up the factory to return our mock
+        mock_factory.return_value = mock_binary_source
+
+        # Setup additional mocks
         mock_create_dataset.return_value = mock_vectors_dataset
-        mock_upload_index.return_value = "remote/path/to/index.bin"
+        mock_upload_index.return_value = "vec.faiss"
 
         # Execute function
         result = run_tasks(index_build_parameters)
 
         # Verify success
         assert isinstance(result, TaskResult)
-        assert result.file_name == "index.bin"
+        assert result.file_name == "vec.faiss"
         assert result.error is None
 
         # Verify mock calls
@@ -173,61 +214,106 @@ def test_successful_task_execution(index_build_parameters, mock_vectors_dataset)
         assert mock_vectors_dataset.free_vectors_space.call_count == 2
         mock_os_remove.assert_called_once()
         mock_os_makedirs.assert_called_once()
+        assert mock_factory.call_count == 2
 
 
-def test_successful_task_execution_with_object_store_config(
+def test_run_tasks_with_object_store_config(
     index_build_parameters, mock_vectors_dataset, object_store_config
 ):
+    # Create proper context manager mocks
+    mock_binary_source = MagicMock(spec=BinarySource)
+
     with patch("core.tasks.create_vectors_dataset") as mock_create_dataset, patch(
         "core.tasks.build_index"
-    ) as mock_build_index, patch("core.tasks.upload_index") as mock_upload_index, patch(
-        "os.remove"
-    ) as mock_os_remove, patch(
+    ), patch("core.tasks.upload_index") as mock_upload_index, patch("os.remove"), patch(
         "os.makedirs"
-    ) as mock_os_makedirs:
+    ), patch(
+        "core.binary_source.binary_source_factory.BinarySourceFactory.create_binary_source"
+    ) as mock_factory:
 
-        # Setup mocks
+        # Set up the factory to return our mock
+        mock_factory.return_value = mock_binary_source
+
+        # Setup additional mocks
         mock_create_dataset.return_value = mock_vectors_dataset
-        mock_upload_index.return_value = "remote/path/to/index.bin"
+        mock_upload_index.return_value = "vec.faiss"
 
-        # Execute function
+        # Execute function with object_store_config
         result = run_tasks(index_build_parameters, object_store_config)
 
         # Verify success
         assert isinstance(result, TaskResult)
-        assert result.file_name == "index.bin"
+        assert result.file_name == "vec.faiss"
         assert result.error is None
 
-        # Verify mock calls
         mock_create_dataset.assert_called_once()
-        call_args = mock_create_dataset.call_args[1]
-        assert (
-            "object_store_config" in call_args
-            and call_args["object_store_config"] == object_store_config
-        )
-        mock_build_index.assert_called_once()
-        mock_upload_index.assert_called_once()
-        assert mock_vectors_dataset.free_vectors_space.call_count == 2
-        mock_os_remove.assert_called_once()
-        mock_os_makedirs.assert_called_once()
+        assert mock_create_dataset.call_args[0][0] == index_build_parameters
+        assert mock_create_dataset.call_args[0][1] == object_store_config
 
 
-def test_create_vectors_dataset_failure(index_build_parameters):
+def test_run_tasks_with_memory_storage_mode(
+    index_build_parameters, mock_vectors_dataset
+):
+    # Create proper context manager mocks
+    mock_binary_source = MagicMock(spec=BinarySource)
 
-    with patch("core.tasks.create_vectors_dataset") as mock_create_dataset:
+    with patch("core.tasks.create_vectors_dataset") as mock_create_dataset, patch(
+        "core.tasks.build_index"
+    ), patch("core.tasks.upload_index") as mock_upload_index, patch("os.remove"), patch(
+        "os.makedirs"
+    ), patch(
+        "core.binary_source.binary_source_factory.BinarySourceFactory.create_binary_source"
+    ) as mock_factory:
+
+        # Set up the factory to return our mock
+        mock_factory.return_value = mock_binary_source
+
+        # Setup additional mocks
+        mock_create_dataset.return_value = mock_vectors_dataset
+        mock_upload_index.return_value = "vec.faiss"
+
+        # Execute function with memory storage mode
+        run_tasks(index_build_parameters, storage_mode=StorageMode.MEMORY)
+
+        # Verify correct storage mode was passed
+        mock_factory.assert_called_with(StorageMode.MEMORY)
+
+
+def test_run_tasks_create_vectors_dataset_failure(index_build_parameters):
+    # Create proper context manager mocks
+    mock_binary_source = MagicMock(spec=BinarySource)
+
+    with patch("core.tasks.create_vectors_dataset") as mock_create_dataset, patch(
+        "core.binary_source.binary_source_factory.BinarySourceFactory.create_binary_source"
+    ) as mock_factory:
+
+        # Set up the factory to return our mock
+        mock_factory.return_value = mock_binary_source
+
+        # Setup failure case
         mock_create_dataset.side_effect = Exception("Dataset creation failed")
 
+        # Execute function
         result = run_tasks(index_build_parameters)
 
+        # Verify failure
         assert isinstance(result, TaskResult)
         assert result.file_name is None
         assert result.error == "Dataset creation failed"
 
 
-def test_build_index_failure(index_build_parameters, mock_vectors_dataset):
+def test_run_tasks_build_index_failure(index_build_parameters, mock_vectors_dataset):
+    # Create proper context manager mocks
+    mock_binary_source = MagicMock(spec=BinarySource)
+
     with patch("core.tasks.create_vectors_dataset") as mock_create_dataset, patch(
         "core.tasks.build_index"
-    ) as mock_build_index, patch("os.makedirs") as mock_os_makedirs:
+    ) as mock_build_index, patch("os.makedirs"), patch(
+        "core.binary_source.binary_source_factory.BinarySourceFactory.create_binary_source"
+    ) as mock_factory:
+
+        # Set up the factory to return our mock
+        mock_factory.return_value = mock_binary_source
 
         # Setup mocks
         mock_create_dataset.return_value = mock_vectors_dataset
@@ -236,13 +322,68 @@ def test_build_index_failure(index_build_parameters, mock_vectors_dataset):
         # Execute function
         result = run_tasks(index_build_parameters)
 
-        # Verify success
+        # Verify failure
         assert isinstance(result, TaskResult)
         assert result.file_name is None
         assert result.error == "Index building failed"
-
-        # Verify mock calls
-        mock_create_dataset.assert_called_once()
-        mock_build_index.assert_called_once()
         mock_vectors_dataset.free_vectors_space.assert_called_once()
-        mock_os_makedirs.assert_called_once()
+
+
+def test_run_tasks_upload_index_failure(index_build_parameters, mock_vectors_dataset):
+    # Create proper context manager mocks
+    mock_binary_source = MagicMock(spec=BinarySource)
+
+    with patch("core.tasks.create_vectors_dataset") as mock_create_dataset, patch(
+        "core.tasks.build_index"
+    ), patch("core.tasks.upload_index") as mock_upload_index, patch("os.remove"), patch(
+        "os.makedirs"
+    ), patch(
+        "core.binary_source.binary_source_factory.BinarySourceFactory.create_binary_source"
+    ) as mock_factory:
+
+        # Set up the factory to return our mock
+        mock_factory.return_value = mock_binary_source
+
+        # Setup mocks
+        mock_create_dataset.return_value = mock_vectors_dataset
+        mock_upload_index.side_effect = Exception("Upload failed")
+
+        # Execute function
+        result = run_tasks(index_build_parameters)
+
+        # Verify failure
+        assert isinstance(result, TaskResult)
+        assert result.file_name is None
+        assert result.error == "Upload failed"
+        assert mock_vectors_dataset.free_vectors_space.call_count == 2
+
+
+def test_get_index_path_from_vector_path():
+    # Use the exact vector path format from the fixture
+    vector_path = "vec.knnvec"
+    engine = "faiss"
+    result = _get_index_path_from_vector_path(vector_path, engine)
+    assert result == "vec.faiss"
+
+    # Additional test with dots in filename
+    vector_path = "path/to/vectors.v1.knnvec"
+    result = _get_index_path_from_vector_path(vector_path, engine)
+    assert result == "path/to/vectors.v1.faiss"
+
+
+def test_get_numpy_dtype():
+    # Test valid type
+    assert _get_numpy_dtype(DataType.FLOAT) == "<f4"
+
+    # Test invalid type
+    with pytest.raises(ValueError, match="Unsupported data type:"):
+        _get_numpy_dtype("INVALID_TYPE")
+
+
+def test_check_dimensions(sample_doc_ids):
+    # Test with the exact doc_count from index_build_parameters fixture
+    _check_dimensions(sample_doc_ids, 5)  # Should not raise
+
+    # Test invalid dimensions
+    with pytest.raises(ValueError, match="Expected 6 elements, but got 5"):
+        _check_dimensions(sample_doc_ids, 6)

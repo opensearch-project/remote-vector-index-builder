@@ -6,7 +6,7 @@
 # compatible open source license.
 
 from abc import ABC, abstractmethod
-from io import BytesIO
+from typing import IO
 
 
 class ObjectStore(ABC):
@@ -21,20 +21,20 @@ class ObjectStore(ABC):
     """
 
     @abstractmethod
-    def read_blob(self, remote_store_path: str, bytes_buffer: BytesIO) -> None:
+    def read_blob(self, remote_store_path: str, file_obj: IO[bytes]) -> None:
         """
-        Downloads the blob from the remote_store_path, to a buffer in memory
+        Downloads a blob from remote store to the provided file object.
 
         Args:
             remote_store_path (str): The path/key to the remote object to be downloaded
-            bytes_buffer (BytesIO): A bytes buffer where the downloaded data will be stored
+            file_obj (IO[bytes]): A file-like object opened in binary mode to store the downloaded data
 
         Returns:
             None
 
         Note:
-            - The bytes_buffer should be properly initialized before passing to this method
-            - Caller is also responsible for cleaning up the bytes buffer
+            - The file object should be properly initialized before passing to this method
+            - Caller is also responsible for closing the file object
             - Implementations should handle any necessary authentication and error handling
         """
         pass

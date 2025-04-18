@@ -35,8 +35,11 @@ class IndexBuilder:
                 - Error message if failed, None otherwise
         """
         s3_endpoint_url = os.environ.get("S3_ENDPOINT_URL", None)
+        storage_mode = os.environ.get("STORAGE_MODE", "disk")
         result = run_tasks(
-            workflow.index_build_parameters, {"S3_ENDPOINT_URL": s3_endpoint_url}
+            workflow.index_build_parameters,
+            {"S3_ENDPOINT_URL": s3_endpoint_url},
+            storage_mode,
         )
         if not result.file_name:
             return False, None, result.error
