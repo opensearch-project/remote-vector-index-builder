@@ -1,6 +1,10 @@
-FROM opensearchstaging/remote-vector-index-builder:core-latest
+FROM opensearchstaging/remote-vector-index-builder:faiss-base-latest
 
 WORKDIR /e2e
+
+COPY ./remote_vector_index_builder/core /remote_vector_index_builder/core
+
+RUN pip install --no-cache-dir --upgrade -r /remote_vector_index_builder/core/requirements.txt
 
 COPY ./e2e/test_core /e2e/test_core
 

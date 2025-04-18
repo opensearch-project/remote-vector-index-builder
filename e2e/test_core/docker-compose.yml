@@ -8,6 +8,9 @@ services:
       - "4566:4566"
     environment:
       - SERVICES=s3
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
     networks:
       - vector-network
   remote-vector-index-builder:
@@ -15,6 +18,10 @@ services:
     image: opensearchstaging/remote-vector-index-builder:e2e-latest
     environment:
       - S3_ENDPOINT_URL=http://localstack-main:4566
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+
     deploy:
       resources:
         reservations:

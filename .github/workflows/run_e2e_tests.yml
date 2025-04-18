@@ -1,0 +1,59 @@
+name: Run Remote-Vector-Index-Builder E2E Core Test Image
+
+on:
+  push:
+    paths:  # Note this is done for folder specific checkouts, reduce CI memory load
+      - 'remote_vector_index_builder/**'
+      - 'test_remote_vector_index_builder/**'
+      - 'base_image/**'
+      - 'e2e/**'
+      - '.github/workflows/run_e2e_tests.yml'
+  pull_request:
+    branches:
+      - "*"
+      - "feature/**"
+    paths:
+      - 'e2e/**'
+      - '.github/workflows/run_e2e_tests.yml'
+      - 'remote_vector_index_builder/**'
+      - 'test_remote_vector_index_builder/**'
+      - 'base_image/**'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  run-e2e-core-test-image:
+    name: Run Remote-Vector-Index-Builder E2E Core Test Image
+    if: github.repository == 'opensearch-project/remote-vector-index-builder'
+    runs-on:
+      group: selfhosted-gpu-runners
+      labels: g6xlarge
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run : |
+          docker build  -f ./e2e/test_core/Dockerfile . -t opensearchstaging/remote-vector-index-builder:e2e-latest
+      
+      - name: Run E2E Tests
+        run : |
+            docker compose -f ./e2e/test_core/docker-compose.yml up --exit-code-from remote-vector-index-builder
+
+      - name: Docker-Compose cleanup
+        if: always()
+        run : |
+            docker compose -f ./e2e/test_core/docker-compose.yml -v down
+
+      - name: Runner Cleanups
+        if: always()
+        run : | 
+          docker system prune -af --volumes
+          rm -rf ${{ github.workspace }}/*
+          docker images ls
+          docker volume ls
+          docker network ls
+          docker ps -a
