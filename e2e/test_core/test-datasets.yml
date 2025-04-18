@@ -1,0 +1,47 @@
+datasets:
+  test-dataset-128:
+    dimension: 128
+    num_vectors: 1_000_000
+    num_queries: 10_000
+    data_type: float32
+    distribution:
+      type: normal
+      mean: 0.0
+      std: 1.0
+      normalize: true
+
+  test-dataset-384:
+    dimension: 384
+    num_vectors: 1_000_000
+    num_queries: 50_000
+    data_type: float32
+    distribution:
+      type: normal
+      mean: 0.0
+      std: 0.1
+      normalize: true
+
+  test-dataset-768:
+    dimension: 768
+    num_vectors: 1_000_000
+    num_queries: 10_000
+    data_type: float32
+    distribution:
+      type: normal
+      mean: 0.0
+      std: 0.1
+      normalize: true
+
+generation:
+  batch_size: 100_000
+  seed: 42
+  progress_bar: true
+
+storage:
+  s3:
+    bucket: test-index-builder
+    region: us-east-1
+    retries: 3
+    paths:
+      vectors: "{dataset_name}/vectors.knnvec"
+      doc_ids: "{dataset_name}/doc_ids.knndid"
