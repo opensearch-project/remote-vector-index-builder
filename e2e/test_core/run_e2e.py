@@ -9,40 +9,39 @@
 from core.common.models import IndexBuildParameters
 from core.common.models.index_build_parameters import DataType
 from core.object_store.types import ObjectStoreType
+from e2e.test_core.utils.logging_config import configure_logger
 from e2e.test_core.vector_dataset_generator import VectorDatasetGenerator
 from botocore.exceptions import ClientError
 from core.tasks import run_tasks
 import os
+import logging
+import time
+import sys
 
 
-def run_e2e_index_builder(config_path: str):
+def run_e2e_index_builder(config_path: str = "test_core/test-datasets.yml"):
 
-    # run for each dataset in yml e2e test vector index builder
-    # Teardown dataset and sucess artfacts from memory and s3
-
-    # Ideally run this on a container so that memory gets freed up at end of tests
-    # Assert docker container quit with exit 0 -> all tests suite exitted normally
+    logger = logging.getLogger(__name__)
     dataset_generator = VectorDatasetGenerator(config_path)
 
     try:
-        # Creat etest bucket if it doesn't exist
+        # Create test bucket if it doesn't exist
         s3_client = dataset_generator.object_store.s3_client
         bucket = dataset_generator.config["storage"]["s3"]["bucket"]
         try:
             s3_client.create_bucket(Bucket=bucket)
-            print(f"Created bucket: {bucket}")
+            logger.info(f"Created bucket: {bucket}")
         except s3_client.exceptions.BucketAlreadyExists:
-            print(f"Using existing bucket: {bucket}")
+            logger.info(f"Using existing bucket: {bucket}")
 
         # Process each dataset
         for dataset_name in dataset_generator.config["datasets"]:
-            print(f"\n=== Processing dataset: {dataset_name} ===")
+            logger.info(f"\n=== Processing dataset: {dataset_name} ===")
 
             try:
-                vectors, doc_ids = dataset_generator.generate_vectors(dataset_name)
-                dataset_generator.upload_dataset(dataset_name, vectors, doc_ids)
-                del vectors
-                del doc_ids
+                gen_and_upload_metrics = dataset_generator.generate_and_upload_dataset(
+                    dataset_name
+                )
 
                 dataset_config = dataset_generator.config["datasets"][dataset_name]
                 s3_config = dataset_generator.config["storage"]["s3"]
@@ -60,7 +59,7 @@ def run_e2e_index_builder(config_path: str):
                     data_type=DataType.FLOAT,
                     repository_type=ObjectStoreType.S3,
                 )
-                print("\nRunning vector index builder workflow...")
+                logger.info("\nRunning vector index builder workflow...")
                 object_store_config = {
                     "retries": s3_config["retries"],
                     "region": s3_config["region"],
@@ -68,36 +67,48 @@ def run_e2e_index_builder(config_path: str):
                         "S3_ENDPOINT_URL", "http://localhost:4566"
                     ),
                 }
+                start_time = time.time()
                 result = run_tasks(
                     index_build_params=index_build_params,
                     object_store_config=object_store_config,
                 )
+                run_tasks_total_time = time.time() - start_time
 
                 if result.error:
-                    print(f"Error in workflow: {result.error}")
-                    continue
+                    logger.error(f"Error in workflow: {result.error}")
+                    raise RuntimeError(f"Test failed for dataset {dataset_name}: {result.error}")
 
-                print(f"Successfully processed dataset: {dataset_name}")
+                logger.info(f"Successfully processed dataset: {dataset_name}")
+                metrics = {
+                    "dataset": gen_and_upload_metrics,
+                    "run_tasks_total_time": run_tasks_total_time,
+                }
+                logger.info(metrics)
+
             except Exception as e:
-                print(f"Error processing dataset {dataset_name}: {str(e)}")
-                continue
+                logger.exception(f"Error processing dataset {dataset_name}: {str(e)}")
+                raise
+    except Exception as e:
+        logger.error(f"E2E test failed: {str(e)}")
+        sys.exit(1)  # Exit with non-zero status
     finally:
-        print("\n=== Cleaning up ===")
+        logger.info("\n=== Cleaning up ===")
         try:
             # Delete all objects in bucket
             response = s3_client.list_objects_v2(Bucket=bucket)
             if "Contents" in response:
                 for obj in response["Contents"]:
                     s3_client.delete_object(Bucket=bucket, Key=obj["Key"])
-                    print(f"Deleted: {obj['Key']}")
+                    logger.info(f"Deleted: {obj['Key']}")
 
             # Delete bucket
             s3_client.delete_bucket(Bucket=bucket)
-            print(f"Deleted bucket: {bucket}")
+            logger.info(f"Deleted bucket: {bucket}")
 
         except ClientError as e:
-            print(f"Error during cleanup: {e}")
+            logger.warning(f"Error during cleanup: {e}")
 
 
 if __name__ == "__main__":
+    configure_logger()
     run_e2e_index_builder("test_core/test-datasets.yml")

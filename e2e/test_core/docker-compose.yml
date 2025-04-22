@@ -15,7 +15,8 @@ services:
       - vector-network
   remote-vector-index-builder:
     container_name: remote-vector-index-builder
-    image: opensearchstaging/remote-vector-index-builder:e2e-latest
+    image: remote-vector-index-builder:e2e-latest
+    pull_policy: never
     environment:
       - S3_ENDPOINT_URL=http://localstack-main:4566
       - AWS_ACCESS_KEY_ID=test

@@ -30,6 +30,7 @@ jobs:
     runs-on:
       group: selfhosted-gpu-runners
       labels: g6xlarge
+    timeout-minutes: 60  # Job level timeout
 
     steps:
       - name: Checkout code
@@ -37,12 +38,22 @@ jobs:
 
       - name: Build Docker Image
         run : |
-          docker build  -f ./e2e/test_core/Dockerfile . -t opensearchstaging/remote-vector-index-builder:e2e-latest
+          docker build --pull  -f ./e2e/test_core/Dockerfile . -t remote-vector-index-builder:e2e-latest
       
       - name: Run E2E Tests
+        id: e2e_tests
+        timeout-minutes: 20  # E2E test timeout
         run : |
-            docker compose -f ./e2e/test_core/docker-compose.yml up --exit-code-from remote-vector-index-builder
-
+            set -o pipefail
+            # Add timeout to docker-compose
+            timeout 1200 docker compose -f ./e2e/test_core/docker-compose.yml up --exit-code-from remote-vector-index-builder 2>&1 | tee test_output.log
+            exit_code=$?
+            if [ $exit_code -eq 124 ]; then
+                echo "Test timed out after 20 minutes"
+                exit 1
+            fi
+            echo "exit_code=$exit_code" >> $GITHUB_OUTPUT
+            exit $exit_code
       - name: Docker-Compose cleanup
         if: always()
         run : |
@@ -51,9 +62,22 @@ jobs:
       - name: Runner Cleanups
         if: always()
         run : | 
-          docker system prune -af --volumes
+          docker container prune -f
+          docker volume prune -af
+          docker network prune -f
+          docker rmi $(docker images -f "dangling=true" -q) || echo clean
+
           rm -rf ${{ github.workspace }}/*
-          docker images ls
-          docker volume ls
-          docker network ls
+          
+          docker image list
+          docker volume list
+          docker network list
           docker ps -a
+
+      - name: Check Test Results
+        if: always()
+        run: |
+            if [ "${{ steps.e2e_tests.outputs.exit_code }}" != "0" ]; then
+              echo "E2E tests failed with exit code ${{ steps.e2e_tests.outputs.exit_code }}"
+              exit 1
+            fi

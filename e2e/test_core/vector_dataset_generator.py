@@ -1,3 +1,10 @@
+# Copyright OpenSearch Contributors
+# SPDX-License-Identifier: Apache-2.0
+#
+# The OpenSearch Contributors require contributions made to
+# this file be licensed under the Apache-2.0 license or a
+# compatible open source license.
+
 import os
 import numpy as np
 import yaml
@@ -6,17 +13,14 @@ from botocore.exceptions import ClientError
 from core.common.models import IndexBuildParameters
 from core.object_store.object_store_factory import ObjectStoreFactory
 from core.object_store.types import ObjectStoreType
-from core.tasks import create_vectors_dataset, build_index, upload_index, run_tasks
-
-# Run full workflow w/o error, assert does not raise
-
-# Test failure of create_vectors_dataset when data uploaded with checksum failure,
-# read attempt from s3 fails with checksum error
-
-# Test create_vectors, build_index, upload_index pass successfully
+import logging
 
 
 class VectorDatasetGenerator:
+    """
+    Class to generate dummy vectors and injest in the object store, required for running e2e tests
+    """
+
     def __init__(self, config_path):
         self.config = self.load_config(config_path)
         self.object_store = self.initialize_object_store()
@@ -49,7 +53,6 @@ class VectorDatasetGenerator:
             return yaml.safe_load(f)
 
     def generate_vectors(self, dataset_name):
-        """Generate test vector and doc ID data of specified size"""
 
         start_time = time.time()
 
@@ -83,22 +86,21 @@ class VectorDatasetGenerator:
             doc_ids = np.arange(i, i + batch_size_current, dtype=np.int32)
             doc_ids_list.append(doc_ids)
 
-        # Combine batches
         vectors = np.concatenate(vectors_list)
-
-        # Generate doc IDs (this is very fast)
         doc_ids = np.concatenate(doc_ids_list)
-        # doc_ids = np.arange(n_vectors, dtype=np.int32)
 
         total_time = time.time() - start_time
-        print(f"Total generation time: {total_time:.2f}s")
-        print(f"Vectors Memory usage: {vectors.nbytes / (1024**3):.2f}GB")
-        print(f"Doc Ids Memory usage: {doc_ids.nbytes / (1024**2):.2f}MB")
+        metrics = {
+            "total_time": total_time,
+            "vectors_memory": f"{vectors.nbytes / (1024**3):.2f}GB",
+            "doc_ids_memory": f"{doc_ids.nbytes / (1024**2):.2f}MB",
+        }
 
-        return vectors, doc_ids
+        return vectors, doc_ids, metrics
 
     def upload_dataset(self, dataset_name, vectors, doc_ids):
-        """Upload vectors and doc_ids directly to S3 using the S3 client"""
+        logger = logging.getLogger(__name__)
+
         s3_config = self.config["storage"]["s3"]
 
         # Get paths
@@ -114,33 +116,35 @@ class VectorDatasetGenerator:
 
         # Upload to S3
         try:
+            start_time = time.time()
             s3_client.put_object(
                 Bucket=s3_config["bucket"], Key=vector_path, Body=vectors_bytes
             )
-            print(f"Uploaded vectors to {vector_path}")
 
             s3_client.put_object(
                 Bucket=s3_config["bucket"], Key=doc_id_path, Body=doc_ids_bytes
             )
-            print(f"Uploaded doc_ids to {doc_id_path}")
+            metrics = {"total_time": time.time() - start_time}
+            return metrics
 
         except ClientError as e:
-            print(f"Error uploading to S3: {e}")
+            logger.exception(f"Error uploading dataset {dataset_name} to S3: {e}")
             raise
 
     def generate_and_upload_dataset(self, dataset_name):
+        logger = logging.getLogger(__name__)
         """Generate and upload a single dataset"""
-        print(f"\nProcessing dataset: {dataset_name}")
 
         try:
             # Generate vectors
-            vectors, doc_ids = self.generate_vectors(dataset_name)
+            vectors, doc_ids, gen_metrics = self.generate_vectors(dataset_name)
 
-            self.upload_dataset(dataset_name, vectors, doc_ids)
+            upload_metrics = self.upload_dataset(dataset_name, vectors, doc_ids)
 
             del vectors, doc_ids
+            logger.info(f"Successfully generated and uploaded {dataset_name}")
 
-            print(f"Successfully generated and uploaded {dataset_name}")
+            return {"generation": gen_metrics, "upload": upload_metrics}
         except Exception as e:
-            print(f"Error processing {dataset_name}: {str(e)}")
+            logger.exception(f"Error processing {dataset_name}: {str(e)}")
             raise
