@@ -9,11 +9,10 @@
 from core.common.models import IndexBuildParameters
 from core.common.models.index_build_parameters import DataType
 from core.object_store.types import ObjectStoreType
+from e2e.test_core.remote_vector_api_client import RemoteVectorAPIClient
 from e2e.test_core.utils.logging_config import configure_logger
 from e2e.test_core.vector_dataset_generator import VectorDatasetGenerator
 from botocore.exceptions import ClientError
-from core.tasks import run_tasks
-import os
 import logging
 import time
 import sys
@@ -46,37 +45,40 @@ def run_e2e_index_builder(config_path: str = "test_core/test-datasets.yml"):
                 dataset_config = dataset_generator.config["datasets"][dataset_name]
                 s3_config = dataset_generator.config["storage"]["s3"]
 
-                index_build_params = IndexBuildParameters(
-                    vector_path=s3_config["paths"]["vectors"].format(
+                index_build_params = {
+                    "vector_path":s3_config["paths"]["vectors"].format(
                         dataset_name=dataset_name
                     ),
-                    doc_id_path=s3_config["paths"]["doc_ids"].format(
+                    "doc_id_path":s3_config["paths"]["doc_ids"].format(
                         dataset_name=dataset_name
                     ),
-                    container_name=bucket,
-                    dimension=dataset_config["dimension"],
-                    doc_count=dataset_config["num_vectors"],
-                    data_type=DataType.FLOAT,
-                    repository_type=ObjectStoreType.S3,
-                )
-                logger.info("\nRunning vector index builder workflow...")
-                object_store_config = {
-                    "retries": s3_config["retries"],
-                    "region": s3_config["region"],
-                    "S3_ENDPOINT_URL": os.environ.get(
-                        "S3_ENDPOINT_URL", "http://localhost:4566"
-                    ),
+                    "container_name":bucket,
+                    "dimension":dataset_config["dimension"],
+                    "doc_count":dataset_config["num_vectors"],
+                    "data_type":DataType.FLOAT,
+                    "repository_type":ObjectStoreType.S3,
                 }
+
+                logger.info("\nRunning vector index builder workflow...")
+
+                client = RemoteVectorAPIClient(timeout=30)
+                
                 start_time = time.time()
-                result = run_tasks(
-                    index_build_params=index_build_params,
-                    object_store_config=object_store_config,
+                # Submit job
+                job_id = client.build_index(index_build_params)
+                logger.info(f"Created job: {job_id}")
+                
+                # Wait for completion (20 minute timeout)
+                result = client.wait_for_job_completion(
+                    job_id, 
+                    timeout=1200,  # 20 minutes
+                    interval=10    # Check every 10 seconds
                 )
                 run_tasks_total_time = time.time() - start_time
 
-                if result.error:
-                    logger.error(f"Error in workflow: {result.error}")
-                    raise RuntimeError(f"Test failed for dataset {dataset_name}: {result.error}")
+                if result["task_status"] != "COMPLETED_INDEX_BUILD":
+                    logger.error(f"Error in workflow: {result.get('error_message')}")
+                    raise RuntimeError(f"Job failed: {result.get('error_message')}")
 
                 logger.info(f"Successfully processed dataset: {dataset_name}")
                 metrics = {

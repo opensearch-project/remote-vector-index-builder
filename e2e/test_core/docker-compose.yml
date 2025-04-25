@@ -16,12 +16,17 @@ services:
   remote-vector-index-builder:
     container_name: remote-vector-index-builder
     image: remote-vector-index-builder:e2e-latest
-    pull_policy: never
+    command: >
+      bash -c "pwd & fastapi run ../remote_vector_index_builder/app/main.py --port 1025 &
+              sleep 5 &&
+              python test_core/run_e2e.py"
     environment:
       - S3_ENDPOINT_URL=http://localstack-main:4566
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
+    ports:
+      - "8080:1025"
 
     deploy:
       resources:
