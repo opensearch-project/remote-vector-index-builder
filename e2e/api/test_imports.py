@@ -21,7 +21,7 @@ def import_modules():
         from core.object_store.object_store_factory import ObjectStoreFactory
         from core.object_store.types import ObjectStoreType
 
-        from e2e.test_core.vector_dataset_generator import VectorDatasetGenerator
+        from e2e.api.vector_dataset_generator import VectorDatasetGenerator
 
         print("All imports successful!")
         return 0

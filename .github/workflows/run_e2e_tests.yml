@@ -38,7 +38,7 @@ jobs:
 
       - name: Build Docker Image
         run : |
-          docker build --pull  -f ./e2e/test_core/Dockerfile . -t remote-vector-index-builder:e2e-latest
+          docker build --pull  -f ./e2e/api/Dockerfile . -t remote-vector-index-builder:e2e-latest
       
       - name: Run E2E Tests
         id: e2e_tests
@@ -46,7 +46,7 @@ jobs:
         run : |
             set -o pipefail
             # Add timeout to docker-compose
-            timeout 1200 docker compose -f ./e2e/test_core/docker-compose.yml up --exit-code-from remote-vector-index-builder 2>&1 | tee test_output.log
+            timeout 1200 docker compose -f ./e2e/api/docker-compose.yml up --exit-code-from remote-vector-index-builder 2>&1 | tee test_output.log
             exit_code=$?
             if [ $exit_code -eq 124 ]; then
                 echo "Test timed out after 20 minutes"
@@ -57,7 +57,7 @@ jobs:
       - name: Docker-Compose cleanup
         if: always()
         run : |
-            docker compose -f ./e2e/test_core/docker-compose.yml -v down
+            docker compose -f ./e2e/api/docker-compose.yml -v down
 
       - name: Runner Cleanups
         if: always()
