@@ -26,7 +26,7 @@ USER appuser
 # Put conda in path so we can use conda activate
 ENV PATH=$CONDA_DIR/bin:$PATH
 #install some necessary dependencies
-RUN conda install -y -q python=3.11 cmake=3.26 make=4.2 swig=4.0 "numpy<2" scipy=1.14 pytest=7.4 gflags=2.2
+RUN conda install -c conda-forge -y -q python=3.11 cmake=3.30.4 make=4.2 swig=4.0 "numpy<2" scipy=1.14 pytest=7.4 gflags=2.2
 RUN cmake --version
 
 # set CUDA_ARCHS to use in cmake call in build script
@@ -36,8 +36,8 @@ ENV CUDA_ARCHS "80;86-real"
 RUN conda install -y -q -c conda-forge gxx_linux-64=14.2 sysroot_linux-64=2.17
 
 # install all the dependencies we need for installing faiss
-# Ref: https://github.com/facebookresearch/faiss/blob/3c8dc4194907e9b911551d5a009468106f8b9c7f/.github/actions/build_cmake/action.yml#L57C31-L57C44
-RUN conda install -y -q libcuvs=24.12 cuda-nvcc gxx_linux-64=12.4 -c rapidsai -c conda-forge
+# Ref: https://github.com/facebookresearch/faiss/blob/main/.github/actions/build_cmake/action.yml#L64
+RUN conda install -y -q libcuvs=25.06 cuda-nvcc 'cuda-version>=12.0,<=12.5' cuda-toolkit=12.4.1 gxx_linux-64=12.4 -c rapidsai -c rapidsai-nightly -c conda-forge
 
 # Execute steps to build faiss
 # Ref: https://github.com/facebookresearch/faiss/blob/main/INSTALL.md#step-1-invoking-cmake

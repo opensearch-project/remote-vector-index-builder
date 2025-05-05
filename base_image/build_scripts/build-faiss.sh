@@ -14,7 +14,7 @@ cmake --version
 echo "Running cmake build"
 pwd
 cmake -B build \
-    -DBUILD_SHARED_LIBS=ON \
+    -DBUILD_SHARED_LIBS=OFF \
     -DFAISS_ENABLE_GPU=ON \
     -DFAISS_OPT_LEVEL=generic \
     -DFAISS_ENABLE_C_API=OFF \
@@ -37,7 +37,4 @@ echo "Running make command"
 make -C build -j6 faiss swigfaiss
 
 # Step 3: Generate and install python packages
-cd build/faiss/python && python3 setup.py build
-
-# make faiss python bindings available for use
-export PYTHONPATH="$(ls -d `pwd`/tmp/faiss/build/faiss/python/build/lib*/):`pwd`/"
+(cd build/faiss/python && python setup.py install)
