@@ -35,7 +35,7 @@ Dependencies:
     - app.storage: Storage implementations
     - app.utils: Utility functions and logging
 """
-from app.routes import build, status
+from app.routes import build, status, heart_beat, get_jobs
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -114,3 +114,5 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 app.include_router(build.router)
 app.include_router(status.router)
+app.include_router(heart_beat.router)
+app.include_router(get_jobs.router)

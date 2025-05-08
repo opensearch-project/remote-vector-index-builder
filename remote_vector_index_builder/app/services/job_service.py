@@ -5,7 +5,7 @@
 # this file be licensed under the Apache-2.0 license or a
 # compatible open source license.
 
-from typing import Optional
+from typing import Optional, Dict
 from app.base.exceptions import HashCollisionError, CapacityError
 from app.base.resources import ResourceManager
 from app.executors.workflow_executor import WorkflowExecutor
@@ -215,3 +215,12 @@ class JobService:
             Optional[Job]: The job object if found, None otherwise
         """
         return self.request_store.get(job_id)
+
+    def get_jobs(self) -> Dict[str, Job]:
+        """
+        Retrieves all jobs from the request store.
+
+        Returns:
+            Dict[str, Job]: A dictionary of all jobs in the request store
+        """
+        return self.request_store.get_jobs()

@@ -73,3 +73,13 @@ class RequestStore(ABC):
             bool: True if deletion was successful, False otherwise
         """
         return True
+
+    @abstractmethod
+    def get_jobs(self) -> Dict[str, Job]:
+        """
+        Retrieve all jobs from the store.
+
+        Returns:
+            Dict[str, Job]: A dictionary of all jobs, with job IDs as keys and Job objects as values
+        """
+        pass

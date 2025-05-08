@@ -5,10 +5,12 @@ on:
     paths:  # Note this is done for folder specific checkouts, reduce CI memory load
       - 'remote_vector_index_builder/**'
       - 'test_remote_vector_index_builder/**'
+      - 'e2e/**'
   pull_request:
     paths:  # Note this is done for folder specific checkouts, reduce CI memory load
       - 'remote_vector_index_builder/**'
       - 'test_remote_vector_index_builder/**'
+      - 'e2e/**'
 
 permissions:
   contents: read
@@ -29,6 +31,7 @@ jobs:
               .github/CODEOWNERS
               remote_vector_index_builder
               test_remote_vector_index_builder
+              e2e
         - name: Setup Python
           uses: actions/setup-python@v5
           with:
@@ -40,18 +43,19 @@ jobs:
             python -m pip install -r remote_vector_index_builder/core/requirements.txt
             python -m pip install -r remote_vector_index_builder/app/requirements.txt
             python -m pip install -r test_remote_vector_index_builder/requirements.txt
+            python -m pip install -r e2e/api/requirements.txt
 
         - name: Run Linting - flake8
           run: |
-            python -m flake8 remote_vector_index_builder/ test_remote_vector_index_builder/
+            python -m flake8 remote_vector_index_builder/ test_remote_vector_index_builder/ e2e/
 
         - name: Run Formatter - black
           run: |
-            python -m black --check remote_vector_index_builder/ test_remote_vector_index_builder/
+            python -m black --check remote_vector_index_builder/ test_remote_vector_index_builder/ e2e/
 
         - name: Run Type Checker - mypy
           run: |
-            python -m mypy remote_vector_index_builder/ test_remote_vector_index_builder/
+            python -m mypy remote_vector_index_builder/ test_remote_vector_index_builder/ e2e/
         - name: Run tests
           run: |
             python -m pytest test_remote_vector_index_builder/

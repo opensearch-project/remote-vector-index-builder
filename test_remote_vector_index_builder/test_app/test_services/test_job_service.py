@@ -174,3 +174,23 @@ def test_get_job_not_exists(job_service):
     """Test retrieving non-existent job"""
     result = job_service.get_job("test_id")
     assert result is None
+
+
+def test_get_jobs(job_service):
+    """Test get all jobs"""
+
+    mock_job_1 = Mock(spec=Job)
+    mock_job_2 = Mock(spec=Job)
+
+    job_service.request_store.get_jobs.return_value = {
+        "test_id1": mock_job_1,
+        "test_id2": mock_job_2,
+    }
+
+    jobs = job_service.get_jobs()
+
+    assert "test_id1" in jobs
+    assert "test_id2" in jobs
+    assert len(jobs) == 2
+    assert jobs["test_id1"] == mock_job_1
+    assert jobs["test_id2"] == mock_job_2

@@ -97,6 +97,40 @@ class RemoteVectorAPIClient:
             logger.error(f"Failed to get status for job {job_id}")
             raise
 
+    def heart_beat(self) -> str:
+        """
+        Method to make a _heart_beat request to the API server
+        Returns:
+            str: Heart beat response message
+
+        Raises:
+            APIError: If the _heart_beat request fails
+        """
+        logger = logging.getLogger(__name__)
+        try:
+            response = self._make_request(method="GET", endpoint="/_heart_beat")
+            return response.json()
+        except APIError:
+            logger.error("Failed to get heartbeat")
+            raise
+
+    def get_jobs(self) -> str:
+        """
+        Method to make a _jobs request to the API server
+        Returns:
+            str: Jobs that are currently stored on the server
+
+        Raises:
+            APIError: If the _jobs request fails
+        """
+        logger = logging.getLogger(__name__)
+        try:
+            response = self._make_request(method="GET", endpoint="/_jobs")
+            return response.json()
+        except APIError:
+            logger.error("Failed to get heartbeat")
+            raise
+
     def build_index(self, index_build_parameters: Dict[str, Any]) -> str:
         """
         Submits an Index Build Job via HTTP request to the _build API
@@ -150,7 +184,7 @@ class RemoteVectorAPIClient:
                 error_detail = None
                 try:
                     error_detail = e.response.json()
-                except:
+                except Exception:
                     error_detail = e.response.text
 
                 logger.error(
