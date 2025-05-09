@@ -21,6 +21,7 @@ cmake -B build \
     -DFAISS_ENABLE_PYTHON=ON \
     -DPYTHON_EXECUTABLE=$CONDA/bin/python \
     -DCMAKE_BUILD_TYPE=Release \
+    -DFAISS_USE_LTO=ON \
     -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCHS}" \
     -DFAISS_ENABLE_CUVS=ON \
     -DCUDAToolkit_ROOT="/usr/local/cuda/lib64" \
@@ -37,7 +38,4 @@ echo "Running make command"
 make -C build -j6 faiss swigfaiss
 
 # Step 3: Generate and install python packages
-cd build/faiss/python && python3 setup.py build
-
-# make faiss python bindings available for use
-export PYTHONPATH="$(ls -d `pwd`/tmp/faiss/build/faiss/python/build/lib*/):`pwd`/"
+(cd build/faiss/python && python setup.py install)
