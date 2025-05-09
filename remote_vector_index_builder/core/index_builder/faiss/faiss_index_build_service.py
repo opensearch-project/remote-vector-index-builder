@@ -20,6 +20,9 @@ from core.index_builder.index_builder_utils import (
     get_omp_num_threads,
 )
 from core.index_builder.interface import IndexBuildService
+from timeit import default_timer as timer
+
+import logging
 
 
 class FaissIndexBuildService(IndexBuildService):
@@ -72,6 +75,7 @@ class FaissIndexBuildService(IndexBuildService):
             )
 
             # Step 1b: create a GPU Index from the faiss config and vector dataset
+            t1 = timer()
             faiss_gpu_build_index_output = (
                 faiss_gpu_index_cagra_builder.build_gpu_index(
                     vectors_dataset,
@@ -79,6 +83,9 @@ class FaissIndexBuildService(IndexBuildService):
                     index_build_parameters.index_parameters.space_type,
                 )
             )
+            t2 = timer()
+            index_build_time = t2 - t1
+            logging.debug(f"Index build time: {index_build_time:.2f} seconds")
 
             # Step 2a: Create a structured CPUIndexConfig having defaults,
             # from a partial dictionary set from index build params
@@ -92,16 +99,25 @@ class FaissIndexBuildService(IndexBuildService):
 
             # Step 2b: Convert GPU Index to CPU Index, update index to cpu index in index-id mappings
             # Also Delete GPU Index after conversion
+
+            t1 = timer()
             faiss_cpu_build_index_output = (
                 faiss_index_hnsw_cagra_builder.convert_gpu_to_cpu_index(
                     faiss_gpu_build_index_output
                 )
             )
+            t2 = timer()
+            index_conversion_time = t2 - t1
+            logging.debug(f"Index conversion time: {index_conversion_time:.2f} seconds")
 
             # Step 3: Write CPU Index to persistent storage
+            t1 = timer()
             faiss_index_hnsw_cagra_builder.write_cpu_index(
                 faiss_cpu_build_index_output, cpu_index_output_file_path
             )
+            t2 = timer()
+            index_write_time = t2 - t1
+            logging.debug(f"Index write time: {index_write_time:.2f} seconds")
 
         except Exception as exception:
             # Clean up GPU Index Response if orchestrator failed after GPU Index Creation

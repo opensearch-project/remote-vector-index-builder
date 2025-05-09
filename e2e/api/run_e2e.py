@@ -5,9 +5,10 @@
 # this file be licensed under the Apache-2.0 license or a
 # compatible open source license.
 
-
-import logging
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
 import json
+import logging
 import time
 import sys
 import os
@@ -26,6 +27,90 @@ def run_e2e_index_builder(config_path: str = "api/test-datasets.yml"):
     logger = logging.getLogger(__name__)
     dataset_generator = VectorDatasetGenerator(config_path)
 
+    def process_dataset(dataset_name):
+        """Process a single dataset in parallel."""
+        logger.info(f"\n=== Processing dataset: {dataset_name} ===")
+
+        try:
+            gen_and_upload_metrics = dataset_generator.generate_and_upload_dataset(
+                dataset_name
+            )
+
+            dataset_config = dataset_generator.config["datasets"][dataset_name]
+            s3_config = dataset_generator.config["storage"]["s3"]
+
+            index_build_params = {
+                "vector_path": s3_config["paths"]["vectors"].format(
+                    dataset_name=dataset_name
+                ),
+                "doc_id_path": s3_config["paths"]["doc_ids"].format(
+                    dataset_name=dataset_name
+                ),
+                "container_name": bucket,
+                "dimension": dataset_config["dimension"],
+                "doc_count": dataset_config["num_vectors"],
+                "data_type": DataType.FLOAT,
+                "repository_type": ObjectStoreType.S3,
+                "engine": Engine.FAISS,
+            }
+
+            logger.info(f"Running vector index builder workflow for {dataset_name}...")
+
+            client.heart_beat()
+
+            start_time = time.time()
+            # Submit job
+            job_id = client.build_index(index_build_params)
+            logger.info(f"Created job: {job_id} for dataset: {dataset_name}")
+
+            jobs = json.loads(client.get_jobs())
+            logger.info(f"Jobs: {jobs}")
+            if job_id not in jobs:
+                logger.error(f"Error in workflow: Job {job_id} not found")
+                raise RuntimeError("Job not found")
+
+            # Wait for completion (20 minute timeout)
+            result = client.wait_for_job_completion(
+                job_id,
+                status_request_timeout=1200,  # 20 minutes
+                interval=10,  # Check every 10 seconds
+            )
+            run_tasks_total_time = time.time() - start_time
+
+            if result.task_status != JobStatus.COMPLETED:
+                logger.error(
+                    f"Error in workflow for {dataset_name}: {result.error_message}"
+                )
+                raise RuntimeError(
+                    f"Job failed for {dataset_name}: {result.error_message}"
+                )
+
+            vector_dataset_name = ".".join(
+                os.path.basename(index_build_params["vector_path"]).split(".")[0:-1]
+            )
+            index_file_name = vector_dataset_name + "." + index_build_params["engine"]
+            if result.file_name != index_file_name:
+                error_msg = (
+                    f"Error in workflow for {dataset_name}: "
+                    f"Vector file upload path mismatch, "
+                    f"expected:{index_file_name}, got: {result.file_name}"
+                )
+                logger.error(error_msg)
+                raise RuntimeError(f"Job Failed for {dataset_name}: {error_msg}")
+
+            logger.info(f"Successfully processed dataset: {dataset_name}")
+            metrics = {
+                "dataset": gen_and_upload_metrics,
+                "run_tasks_total_time": run_tasks_total_time,
+            }
+            logger.info(f"Metrics for {dataset_name}: {metrics}")
+            return dataset_name, True, metrics
+        except Exception as e:
+            logger.exception(f"Error processing dataset {dataset_name}: {str(e)}")
+            return dataset_name, False, str(e)
+
+    bucket = None
+    client = RemoteVectorAPIClient(http_request_timeout=30)
     try:
         # Create test bucket if it doesn't exist
         s3_client = dataset_generator.object_store.s3_client
@@ -36,91 +121,45 @@ def run_e2e_index_builder(config_path: str = "api/test-datasets.yml"):
         except s3_client.exceptions.BucketAlreadyExists:
             logger.info(f"Using existing bucket: {bucket}")
 
-        # Process each dataset
-        for dataset_name in dataset_generator.config["datasets"]:
-            logger.info(f"\n=== Processing dataset: {dataset_name} ===")
+        # Process datasets in parallel
+        all_metrics = {}
+        total_start_time = time.time()
 
-            try:
-                gen_and_upload_metrics = dataset_generator.generate_and_upload_dataset(
-                    dataset_name
-                )
+        with ThreadPoolExecutor() as executor:
+            # Submit all dataset processing tasks to the executor
+            future_to_dataset = {
+                executor.submit(process_dataset, dataset_name): dataset_name
+                for dataset_name in dataset_generator.config["datasets"]
+            }
 
-                dataset_config = dataset_generator.config["datasets"][dataset_name]
-                s3_config = dataset_generator.config["storage"]["s3"]
-
-                index_build_params = {
-                    "vector_path": s3_config["paths"]["vectors"].format(
-                        dataset_name=dataset_name
-                    ),
-                    "doc_id_path": s3_config["paths"]["doc_ids"].format(
-                        dataset_name=dataset_name
-                    ),
-                    "container_name": bucket,
-                    "dimension": dataset_config["dimension"],
-                    "doc_count": dataset_config["num_vectors"],
-                    "data_type": DataType.FLOAT,
-                    "repository_type": ObjectStoreType.S3,
-                    "engine": Engine.FAISS,
-                }
-
-                logger.info("\nRunning vector index builder workflow...")
-
-                client = RemoteVectorAPIClient(http_request_timeout=30)
-
-                client.heart_beat()
-
-                start_time = time.time()
-                # Submit job
-                job_id = client.build_index(index_build_params)
-                logger.info(f"Created job: {job_id}")
-
-                jobs = json.loads(client.get_jobs())
-                logger.info(f"Jobs: {jobs}")
-                if job_id not in jobs:
-                    logger.error(f"Error in workflow: Job {job_id} not found")
-                    raise RuntimeError("Job not found")
-
-                # Wait for completion (20 minute timeout)
-                result = client.wait_for_job_completion(
-                    job_id,
-                    status_request_timeout=1200,  # 20 minutes
-                    interval=10,  # Check every 10 seconds
-                )
-                run_tasks_total_time = time.time() - start_time
-
-                if result.task_status != JobStatus.COMPLETED:
-                    logger.error(f"Error in workflow: {result.error_message}")
-                    raise RuntimeError(f"Job failed: {result.error_message}")
-
-                vector_dataset_name = ".".join(
-                    os.path.basename(index_build_params["vector_path"]).split(".")[0:-1]
-                )
-                index_file_name = (
-                    vector_dataset_name + "." + index_build_params["engine"]
-                )
-                if result.file_name != index_file_name:
-                    error_msg = (
-                        f"Error in workflow: Vector file upload path mismatch, "
-                        f"expected:{index_file_name}, got: {result.file_name}"
+            # Process results as they complete
+            all_succeeded = True
+            for future in as_completed(future_to_dataset):
+                dataset_name = future_to_dataset[future]
+                try:
+                    ds_name, success, result = future.result()
+                    if success:
+                        all_metrics[ds_name] = result
+                    else:
+                        all_succeeded = False
+                        logger.error(f"Dataset {ds_name} failed: {result}")
+                except Exception as e:
+                    all_succeeded = False
+                    logger.exception(
+                        f"Exception processing dataset {dataset_name}: {str(e)}"
                     )
-                    logger.error(error_msg)
-                    raise RuntimeError(f"Job Failed: {error_msg}")
 
-                logger.info(f"Successfully processed dataset: {dataset_name}")
-                metrics = {
-                    "dataset": gen_and_upload_metrics,
-                    "run_tasks_total_time": run_tasks_total_time,
-                }
-                logger.info(metrics)
+        total_execution_time = time.time() - total_start_time
+        logger.info(f"Total parallel execution time: {total_execution_time:.2f}s")
 
-            except Exception as e:
-                logger.exception(f"Error processing dataset {dataset_name}: {str(e)}")
-                raise
-
+        if not all_succeeded:
+            raise RuntimeError("One or more datasets failed to process.")
         jobs = json.loads(client.get_jobs())
         if len(jobs) != len(dataset_generator.config["datasets"]):
             logger.error("Error in workflow: Not all jobs found")
             raise RuntimeError("Not all jobs found")
+
+        logger.info("All datasets processed successfully.")
 
     except Exception as e:
         logger.error(f"E2E test failed: {str(e)}")

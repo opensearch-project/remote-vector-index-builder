@@ -42,8 +42,8 @@ def calculate_memory_requirements(
     # use formula to calculate memory taken up by index
     index_gpu_memory = (
         (vector_dimensions * entry_size + m * 8) * 1.1 * num_vectors
-    ) * 1.5
+    ) * 0.5
 
     index_cpu_memory = (vector_dimensions * entry_size + m * 8) * 1.1 * num_vectors
 
-    return (index_gpu_memory + vector_memory), (index_cpu_memory + vector_memory)
+    return index_gpu_memory, (index_cpu_memory + vector_memory)

@@ -32,6 +32,7 @@ import tempfile
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, Dict, Optional
+from timeit import default_timer as timer
 
 from core.common.models import IndexBuildParameters
 from core.common.models import VectorsDataset
@@ -99,11 +100,17 @@ def run_tasks(
             logger.info(
                 f"Downloading vector and doc id blobs for vector path: {index_build_params.vector_path}"
             )
+            t1 = timer()
             vectors_dataset = create_vectors_dataset(
                 index_build_params=index_build_params,
                 object_store_config=object_store_config,
                 vector_bytes_buffer=vector_buffer,
                 doc_id_bytes_buffer=doc_id_buffer,
+            )
+            t2 = timer()
+            download_time = t2 - t1
+            logging.debug(
+                f"Vector download time for vector path {index_build_params.vector_path}: {download_time:.2f} seconds"
             )
 
             index_local_path = os.path.join(temp_dir, index_build_params.vector_path)
@@ -113,10 +120,17 @@ def run_tasks(
             logger.info(
                 f"Building GPU index for vector path: {index_build_params.vector_path}"
             )
+
+            t1 = timer()
             build_index(
                 index_build_params=index_build_params,
                 vectors_dataset=vectors_dataset,
                 cpu_index_output_file_path=index_local_path,
+            )
+            t2 = timer()
+            build_time = t2 - t1
+            logging.debug(
+                f"Total index build time for path {index_build_params.vector_path}: {build_time:.2f} seconds"
             )
 
             vectors_dataset.free_vectors_space()
@@ -124,10 +138,17 @@ def run_tasks(
             logger.info(
                 f"Uploading index for vector path: {index_build_params.vector_path}"
             )
+
+            t1 = timer()
             remote_path = upload_index(
                 index_build_params=index_build_params,
                 object_store_config=object_store_config,
                 index_local_path=index_local_path,
+            )
+            t2 = timer()
+            upload_time = t2 - t1
+            logging.debug(
+                f"Total upload time for path {index_build_params.vector_path}: {upload_time:.2f} seconds"
             )
 
             os.remove(index_local_path)

@@ -25,6 +25,8 @@ services:
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
       - AWS_DEFAULT_REGION=us-east-1
+      - GPU_MEMORY_LIMIT=2
+      - CPU_MEMORY_LIMIT=7
     ports:
       - "8080:1025"
 
