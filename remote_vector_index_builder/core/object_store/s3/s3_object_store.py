@@ -10,9 +10,8 @@ import os
 import threading
 from functools import cache
 import math
-from io import BytesIO
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, IO
 
 import boto3
 from boto3.s3.transfer import TransferConfig
@@ -202,13 +201,13 @@ class S3ObjectStore(ObjectStore):
 
         return config_params
 
-    def read_blob(self, remote_store_path: str, bytes_buffer: BytesIO) -> None:
+    def read_blob(self, remote_store_path: str, file_obj: IO[bytes]) -> None:
         """
-        Downloads a blob from S3 to the provided bytes buffer, with retry logic.
+        Downloads a blob from S3 to the provided file object, with retry logic.
 
         Args:
             remote_store_path (str): The S3 key (path) of the object to download
-            bytes_buffer (BytesIO): A bytes buffer to store the downloaded data
+            file_obj (IO[bytes]): A file-like object opened in binary mode to store the downloaded data
 
         Returns:
             None
@@ -246,7 +245,7 @@ class S3ObjectStore(ObjectStore):
             self.s3_client.download_fileobj(
                 self.bucket,
                 remote_store_path,
-                bytes_buffer,
+                file_obj,
                 Config=s3_transfer_config,
                 Callback=callback_func,
                 ExtraArgs=self.download_args,

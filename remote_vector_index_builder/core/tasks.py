@@ -22,21 +22,24 @@ The run_tasks function orchestrates these tasks and returns a TaskResult object 
 - error: Any error message if the process failed
 
 Consumers of this module can either import and call the run_tasks function, or import and call each
-individual task in sequence. One reason to call each task in sequence is to persist the vectors to disk,
-before building the index. The default run_tasks function does not do this, for simplicity.
+individual task in sequence. One reason to call each task in sequence is to persist the vectors to external storage,
+before building the index. The default run_tasks function supports storing the vectors on host disk or memory.
 
 """
 import logging
 import os
-import tempfile
+from tempfile import TemporaryDirectory
 from dataclasses import dataclass
-from io import BytesIO
+import numpy as np
 from typing import Any, Dict, Optional
 
 from core.common.models import IndexBuildParameters
+from core.common.models.index_build_parameters import DataType
 from core.common.models import VectorsDataset
 from core.index_builder.faiss.faiss_index_build_service import FaissIndexBuildService
 from core.object_store.object_store_factory import ObjectStoreFactory
+from core.binary_source.binary_source_factory import BinarySourceFactory, StorageMode
+from core.binary_source.binary_source import BinarySource
 
 logger = logging.getLogger(__name__)
 
@@ -65,20 +68,21 @@ class TaskResult:
 def run_tasks(
     index_build_params: IndexBuildParameters,
     object_store_config: Optional[Dict[str, Any]] = None,
+    storage_mode: StorageMode = StorageMode.MEMORY,
 ) -> TaskResult:
     """Execute the index building tasks using the provided parameters.
 
     This function orchestrates the index building process by:
-    1. Creating a temporary directory for processing
-    2. Setting up byte buffers for vectors and document IDs
-    3. Downloading vector and document ID data from remote storage
-    4. Creating a vectors dataset for processing
+    1. Downloading vector and doc ID binaries from remote storage
+    2. Building an index
+    3. Uploading index to remote storage
 
     Args:
         index_build_params (IndexBuildParameters): Parameters for building the index,
             including vector path and other configuration settings.
         object_store_config (Dict[str, Any], optional): Configuration settings for the
             object store. Defaults to None, in which case an empty dictionary is used.
+        storage_mode: Where to store the downloaded vectors. Can be either CPU memory or disk, defaults to memory
 
     Returns:
         TaskResult: An object containing either:
@@ -86,7 +90,11 @@ def run_tasks(
             - error: An error message if the operation failed
 
     """
-    with tempfile.TemporaryDirectory() as temp_dir, BytesIO() as vector_buffer, BytesIO() as doc_id_buffer:
+    with (
+        TemporaryDirectory() as temp_dir,
+        BinarySourceFactory.create_binary_source(storage_mode) as doc_id_source,
+        BinarySourceFactory.create_binary_source(storage_mode) as vector_source,
+    ):
         if object_store_config is None:
             object_store_config = {}
 
@@ -96,19 +104,16 @@ def run_tasks(
                 f"Starting task execution for vector path: {index_build_params.vector_path}"
             )
 
-            logger.info(
-                f"Downloading vector and doc id blobs for vector path: {index_build_params.vector_path}"
+            index_path = _get_index_path_from_vector_path(
+                index_build_params.vector_path, index_build_params.engine
             )
-            vectors_dataset = create_vectors_dataset(
-                index_build_params=index_build_params,
-                object_store_config=object_store_config,
-                vector_bytes_buffer=vector_buffer,
-                doc_id_bytes_buffer=doc_id_buffer,
-            )
-
-            index_local_path = os.path.join(temp_dir, index_build_params.vector_path)
+            index_local_path = os.path.join(temp_dir, index_path)
             directory = os.path.dirname(index_local_path)
             os.makedirs(directory, exist_ok=True)
+
+            vectors_dataset = create_vectors_dataset(
+                index_build_params, object_store_config, vector_source, doc_id_source
+            )
 
             logger.info(
                 f"Building GPU index for vector path: {index_build_params.vector_path}"
@@ -120,7 +125,6 @@ def run_tasks(
             )
 
             vectors_dataset.free_vectors_space()
-
             logger.info(
                 f"Uploading index for vector path: {index_build_params.vector_path}"
             )
@@ -131,11 +135,12 @@ def run_tasks(
             )
 
             os.remove(index_local_path)
-
             logger.info(
                 f"Ending task execution for vector path: {index_build_params.vector_path}"
             )
+
             return TaskResult(file_name=os.path.basename(remote_path))
+
         except Exception as e:
             logger.error(f"Error running tasks: {e}")
             return TaskResult(error=str(e))
@@ -184,64 +189,52 @@ def build_index(
 def create_vectors_dataset(
     index_build_params: IndexBuildParameters,
     object_store_config: Dict[str, Any],
-    vector_bytes_buffer: BytesIO,
-    doc_id_bytes_buffer: BytesIO,
+    vector_source: BinarySource,
+    doc_id_source: BinarySource,
 ) -> VectorsDataset:
     """
     Downloads vector and document ID data from object storage and creates a VectorsDataset.
-
-    This function performs the first step in the index building process by:
-    1. Creating an appropriate object store instance
-    2. Downloading vector data from the specified vector_path, into the vector_bytes_buffer
-    3. Downloading document IDs from the specified doc_id_path, into the doc_id_bytes_buffer
-    4. Combining them into a VectorsDataset object
+    Vector and doc ID data are first read into the corresponding BinarySource data structures,
+    before being assigned to the VectorsDataset object. It is the callers responsibility to
+    close the BinarySource data structures.
 
     Args:
-        index_build_params (IndexBuildParameters): Contains the configuration for the index build,
-            including:
-            - vector_path: Path to the vector data in object storage
-            - doc_id_path: Path to the document IDs in object storage
-            - repository_type: Type of object store to use
-        object_store_config (Dict[str, Any]): Configuration for the object store
-            containing connection details
-        vector_bytes_buffer: Buffer for storing vector binary data
-        doc_id_bytes_buffer: Buffer for storing doc id binary data
+
+        index_build_params (IndexBuildParameters): Build configuration
+        object_store_config (Dict[str, Any]): Object store configuration
+        vector_source (BinarySource): The data structure that stores the vectors
+        doc_id_source (BinarySource): The data structure that stores the doc ids
 
     Returns:
-        VectorsDataset: A dataset object containing:
-            - The downloaded vectors in the specified format
-            - Associated document IDs for each vector
-
-    Note:
-        - Uses BytesIO buffers for memory-efficient data handling
-            - The caller is responsible for closing each buffer
-            - Before closing the buffers, caller must call free_vector_space on VectorDataset object,
-                to remove all references to the underlying data.
-        - Both vector and document ID files must exist in object storage
-        - The number of vectors must match the number of document IDs
-        - Memory usage scales with the size of the vector and document ID data
-
-    Raises:
-        BlobError: If there are issues accessing or reading from object storage
-        VectorDatasetError: If there are issues parsing the vectors and/or doc IDs into a VectorDataset
-        UnsupportedVectorsDataTypeError: If the index_build_params.data_type is not supported
-        UnsupportedObjectStoreTypeError: If the index_build_params.repository_type is not supported
-
+        VectorsDataset: Dataset containing the vectors and document IDs
     """
+
     object_store = ObjectStoreFactory.create_object_store(
         index_build_params, object_store_config
     )
 
-    object_store.read_blob(index_build_params.vector_path, vector_bytes_buffer)
-    object_store.read_blob(index_build_params.doc_id_path, doc_id_bytes_buffer)
-
-    return VectorsDataset.parse(
-        vector_bytes_buffer,
-        doc_id_bytes_buffer,
-        index_build_params.dimension,
+    np_docs = doc_id_source.transform_to_numpy_array(
+        object_store,
+        index_build_params.doc_id_path,
+        "<i4",
         index_build_params.doc_count,
-        index_build_params.data_type,
     )
+    _check_dimensions(np_docs, index_build_params.doc_count)
+
+    np_vectors = vector_source.transform_to_numpy_array(
+        object_store,
+        index_build_params.vector_path,
+        _get_numpy_dtype(index_build_params.data_type),
+        index_build_params.doc_count * index_build_params.dimension,
+    )
+    _check_dimensions(
+        np_vectors, index_build_params.doc_count * index_build_params.dimension
+    )
+    np_vectors = np_vectors.reshape(
+        index_build_params.doc_count, index_build_params.dimension
+    )
+    vectors_dataset = VectorsDataset(np_vectors, np_docs)
+    return vectors_dataset
 
 
 def upload_index(
@@ -268,7 +261,6 @@ def upload_index(
             - The upload destination has the same file path as the vector_path
               except for the file extension. The file extension is based on the engine
         - The index_local_path must exist and be readable
-        - The function assumes index_build_params has already been validated by Pydantic
 
     Raises:
         BlobError: If there are issues uploading to the object store
@@ -278,12 +270,59 @@ def upload_index(
         index_build_params, object_store_config
     )
 
-    # vector path has already been validated that it ends with '.knnvec' by pydantic regex
-    vector_root_path = ".".join(index_build_params.vector_path.split(".")[0:-1])
-
-    # the index path is in the same root location as the vector path
-    index_remote_path = vector_root_path + "." + index_build_params.engine
+    index_remote_path = _get_index_path_from_vector_path(
+        index_build_params.vector_path, index_build_params.engine
+    )
 
     object_store.write_blob(index_local_path, index_remote_path)
 
     return index_remote_path
+
+
+def _get_index_path_from_vector_path(vector_path: str, engine: str) -> str:
+    """
+    Helper function to get the index path from the vector path.
+
+    Args:
+        vector_path (str): The vector path
+    Returns:
+        str: The index path
+    """
+
+    # vector path has already been validated that it ends with '.knnvec' by pydantic regex
+    # so this will extract everything before the .knnvec extension
+    vector_root_path = ".".join(vector_path.split(".")[0:-1])
+
+    return vector_root_path + "." + engine
+
+
+def _get_numpy_dtype(data_type: DataType) -> str:
+    """
+    Helper function to get the numpy data type from the DataType enum
+
+    Args:
+        data_type: The DataType enum value
+    Returns:
+        The numpy data type as a string
+    Raises:
+        ValueError: If the data type is not supported
+    """
+    if data_type == DataType.FLOAT:
+        return "<f4"
+    else:
+        raise ValueError(f"Unsupported data type: {data_type}")
+
+
+def _check_dimensions(array: np.ndarray, expected_length: int):
+    """
+    Helper function to check the numpy array dimensions
+
+    Args:
+        array (np.ndarray): The numpy array to check
+        expected_length: The expected length of the numpy array
+    Raises:
+        ValueError: If the length of the numpy array does not match expected length
+
+    """
+    if len(array) != expected_length:
+        raise ValueError(f"Expected {expected_length} elements, but got {len(array)}")
