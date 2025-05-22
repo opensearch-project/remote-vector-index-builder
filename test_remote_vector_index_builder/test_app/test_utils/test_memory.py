@@ -56,9 +56,7 @@ def test_basic_calculation():
     # Calculate expected values
     entry_size = 4  # FLOAT32 size
     vector_memory = 128 * 1000 * entry_size
-    expected_gpu_memory = (
-        (128 * entry_size + 16 * 8) * 1.1 * 1000
-    ) * 1.5 + vector_memory
+    expected_gpu_memory = ((128 * entry_size + 16 * 8) * 1.1 * 1000) * 0.5
     expected_cpu_memory = (128 * entry_size + 16 * 8) * 1.1 * 1000 + vector_memory
 
     assert gpu_memory == expected_gpu_memory

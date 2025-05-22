@@ -157,3 +157,13 @@ class InMemoryRequestStore(RequestStore):
         while True:
             time.sleep(5)  # Run cleanup every 5 seconds
             self.cleanup_expired()
+
+    def get_jobs(self) -> Dict[str, Job]:
+        """
+        Retrieve all jobs from the store.
+
+        Returns:
+            Dict[str, Job]: A dictionary of all jobs, with job IDs as keys and Job objects as values
+        """
+        with self._lock:
+            return {job_id: job for job_id, (job, _) in self._store.items()}

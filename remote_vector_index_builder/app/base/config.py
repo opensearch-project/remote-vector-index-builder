@@ -8,6 +8,7 @@
 from pydantic_settings import BaseSettings
 from app.storage.types import RequestStoreType
 from typing import Optional
+import os
 
 
 class Settings(BaseSettings):
@@ -17,19 +18,24 @@ class Settings(BaseSettings):
     """
 
     # Request Store settings
-    request_store_type: RequestStoreType = RequestStoreType.MEMORY
+    request_store_type: RequestStoreType = os.environ.get(
+        "REQUEST_STORE_TYPE", RequestStoreType.MEMORY
+    )
 
     # In memory settings
-    request_store_max_size: int = 1000000
-    request_store_ttl_seconds: Optional[int] = 600
+    request_store_max_size: int = int(os.environ.get("REQUEST_STORE_MAX_SIZE", "10000"))
+    request_store_ttl_seconds: Optional[int] = int(
+        os.environ.get("REQUEST_STORE_TTL_SECONDS", "1800")
+    )
 
-    # Resource Manager settings, in bytes
-    gpu_memory_limit: float = 24.0 * 10**9
-    cpu_memory_limit: float = 32.0 * 10**9
+    # Resource Manager settings, in GB
+    # Value later gets multiplied by 10**9
+    gpu_memory_limit: float = float(os.environ.get("GPU_MEMORY_LIMIT", "24.0"))
+    cpu_memory_limit: float = float(os.environ.get("CPU_MEMORY_LIMIT", "32.0"))
 
     # Workflow Executor settings
-    max_workers: int = 5
+    max_workers: int = int(os.environ.get("MAX_WORKERS", "2"))
 
     # Service settings
     service_name: str = "remote-vector-index-builder-api"
-    log_level: str = "INFO"
+    log_level: str = os.environ.get("LOG_LEVEL", "INFO")

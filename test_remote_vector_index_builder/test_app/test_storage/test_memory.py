@@ -136,3 +136,13 @@ def test_get_no_ttl(settings_no_ttl, sample_job):
     store.add("job1", sample_job)
     time.sleep(1.1)  # Even after waiting, job should still be there
     assert store.get("job1") == sample_job
+
+
+def test_get_jobs(settings, sample_job):
+    store = InMemoryRequestStore(settings)
+    store.add("job1", sample_job)
+    store.add("job2", sample_job)
+    jobs = store.get_jobs()
+    assert len(jobs) == 2
+    assert jobs["job1"] == sample_job
+    assert jobs["job2"] == sample_job

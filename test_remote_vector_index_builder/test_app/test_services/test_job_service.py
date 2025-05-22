@@ -24,6 +24,16 @@ def request_store():
 
 
 @pytest.fixture
+def total_gpu_memory():
+    return 1000.0
+
+
+@pytest.fixture
+def total_cpu_memory():
+    return 1000.0
+
+
+@pytest.fixture
 def workflow_executor():
     mock = Mock()
     mock.submit_workflow.return_value = None
@@ -31,22 +41,12 @@ def workflow_executor():
 
 
 @pytest.fixture
-def resource_manager():
-    mock = Mock()
-    mock.allocate.return_value = True
-    mock.get_available_gpu_memory.return_value = 1000
-    mock.get_available_cpu_memory.return_value = 1000
-    return mock
-
-
-@pytest.fixture
-def job_service(request_store, workflow_executor, resource_manager):
+def job_service(request_store, workflow_executor, total_gpu_memory, total_cpu_memory):
     return JobService(
         request_store=request_store,
         workflow_executor=workflow_executor,
-        resource_manager=resource_manager,
-        total_gpu_memory=1000.0,
-        total_cpu_memory=1000.0,
+        total_gpu_memory=total_gpu_memory,
+        total_cpu_memory=total_cpu_memory,
     )
 
 
@@ -106,21 +106,47 @@ def test_add_to_request_store_failure(job, job_service, mock_request_parameters)
         job_service._add_to_request_store("test_id", mock_request_parameters)
 
 
-def test_create_workflow_success(job_service, index_build_parameters):
+def test_create_workflow_success(
+    job_service, index_build_parameters, total_gpu_memory, total_cpu_memory
+):
     """Test successful workflow creation"""
     workflow = job_service._create_workflow(
-        "test_id", 100.0, 200.0, index_build_parameters
+        "test_id",
+        total_gpu_memory - 100,
+        total_cpu_memory - 100,
+        index_build_parameters,
     )
     assert isinstance(workflow, BuildWorkflow)
     assert workflow.job_id == "test_id"
 
 
-def test_create_workflow_allocation_failure(job_service, index_build_parameters):
-    """Test workflow creation with allocation failure"""
-    job_service.resource_manager.allocate.return_value = False
+def test_create_workflow_gpu_memory_capacity_failure(
+    job_service, index_build_parameters, total_gpu_memory, total_cpu_memory
+):
+    """Test workflow creation with gpu memory capacity failure"""
 
     with pytest.raises(CapacityError):
-        job_service._create_workflow("test_id", 100.0, 200.0, index_build_parameters)
+        job_service._create_workflow(
+            "test_id",
+            total_gpu_memory + 100,
+            total_cpu_memory - 100,
+            index_build_parameters,
+        )
+        job_service.request_store.delete.assert_called_once()
+
+
+def test_create_workflow_cpu_memory_capacity_failure(
+    job_service, index_build_parameters, total_gpu_memory, total_cpu_memory
+):
+    """Test workflow creation with cpu memory capacity failure"""
+
+    with pytest.raises(CapacityError):
+        job_service._create_workflow(
+            "test_id",
+            total_gpu_memory - 100,
+            total_cpu_memory + 100,
+            index_build_parameters,
+        )
         job_service.request_store.delete.assert_called_once()
 
 
@@ -174,3 +200,23 @@ def test_get_job_not_exists(job_service):
     """Test retrieving non-existent job"""
     result = job_service.get_job("test_id")
     assert result is None
+
+
+def test_get_jobs(job_service):
+    """Test get all jobs"""
+
+    mock_job_1 = Mock(spec=Job)
+    mock_job_2 = Mock(spec=Job)
+
+    job_service.request_store.get_jobs.return_value = {
+        "test_id1": mock_job_1,
+        "test_id2": mock_job_2,
+    }
+
+    jobs = job_service.get_jobs()
+
+    assert "test_id1" in jobs
+    assert "test_id2" in jobs
+    assert len(jobs) == 2
+    assert jobs["test_id1"] == mock_job_1
+    assert jobs["test_id2"] == mock_job_2

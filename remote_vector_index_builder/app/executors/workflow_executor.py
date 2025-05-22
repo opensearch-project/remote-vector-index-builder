@@ -85,15 +85,29 @@ class WorkflowExecutor:
         Note:
             This method is intended to be run in a separate thread.
         """
+
+        # TODO: Block until memory resource is available, instead of failing immediately
+        if not self._resource_manager.allocate(
+            workflow.gpu_memory_required, workflow.cpu_memory_required
+        ):
+            self._request_store.update(
+                workflow.job_id,
+                {
+                    "status": JobStatus.FAILED,
+                    "error_message": "Worker has not enough memory available at this time",
+                },
+            )
+            return
+
+        logger.info(
+            f"Worker resource status after allocating memory for job id {workflow.job_id}: - "
+            f"GPU: {self._resource_manager.get_available_gpu_memory():,} bytes, "
+            f"CPU: {self._resource_manager.get_available_cpu_memory():,} bytes"
+        )
+
         try:
             logger.info(f"Starting execution of job {workflow.job_id}")
 
-            # Job may have been deleted by request store TTL
-            if not self._request_store.get(workflow.job_id):
-                logger.info(f"Job {workflow.job_id} was deleted before execution")
-                return
-
-            # Execute the build
             success, index_path, msg = self._build_index_fn(workflow)
 
             # Job may have been deleted by request store TTL, so we need to check if job
@@ -121,7 +135,6 @@ class WorkflowExecutor:
                 {"status": JobStatus.FAILED, "error_message": str(e)},
             )
         finally:
-            # Release resources
             self._resource_manager.release(
                 workflow.gpu_memory_required, workflow.cpu_memory_required
             )

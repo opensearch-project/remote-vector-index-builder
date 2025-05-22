@@ -14,6 +14,7 @@ from core.common.models import IndexBuildParameters
 from core.object_store.object_store_factory import ObjectStoreFactory
 from core.object_store.types import ObjectStoreType
 import logging
+from tqdm import tqdm
 
 
 class VectorDatasetGenerator:
@@ -67,7 +68,7 @@ class VectorDatasetGenerator:
 
         vectors_list = []
         doc_ids_list = []
-        for i in range(0, n_vectors, batch_size):
+        for i in tqdm(range(0, n_vectors, batch_size)):
             batch_size_current = min(batch_size, n_vectors - i)
 
             # Generate batch

@@ -35,7 +35,7 @@ Dependencies:
     - app.storage: Storage implementations
     - app.utils: Utility functions and logging
 """
-from app.routes import build, status
+from app.routes import build, status, heart_beat, get_jobs
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -54,6 +54,8 @@ from app.utils.error_message import get_field_path
 import logging
 
 settings = Settings()
+gpu_memory_limit = settings.gpu_memory_limit * 10**9
+cpu_memory_limit = settings.cpu_memory_limit * 10**9
 
 configure_logging(settings.log_level)
 
@@ -64,8 +66,8 @@ request_store = RequestStoreFactory.create(
 )
 
 resource_manager = ResourceManager(
-    total_gpu_memory=settings.gpu_memory_limit,
-    total_cpu_memory=settings.cpu_memory_limit,
+    total_gpu_memory=gpu_memory_limit,
+    total_cpu_memory=cpu_memory_limit,
 )
 
 index_builder = IndexBuilder()
@@ -79,10 +81,9 @@ workflow_executor = WorkflowExecutor(
 
 job_service = JobService(
     request_store=request_store,
-    resource_manager=resource_manager,
     workflow_executor=workflow_executor,
-    total_gpu_memory=settings.gpu_memory_limit,
-    total_cpu_memory=settings.cpu_memory_limit,
+    total_gpu_memory=gpu_memory_limit,
+    total_cpu_memory=cpu_memory_limit,
 )
 
 app = FastAPI(title=settings.service_name)
@@ -114,3 +115,5 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 app.include_router(build.router)
 app.include_router(status.router)
+app.include_router(heart_beat.router)
+app.include_router(get_jobs.router)

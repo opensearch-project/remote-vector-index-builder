@@ -5,9 +5,8 @@
 # this file be licensed under the Apache-2.0 license or a
 # compatible open source license.
 
-from typing import Optional
+from typing import Optional, Dict
 from app.base.exceptions import HashCollisionError, CapacityError
-from app.base.resources import ResourceManager
 from app.executors.workflow_executor import WorkflowExecutor
 from app.models.job import Job, JobStatus
 from app.models.request import RequestParameters
@@ -35,14 +34,12 @@ class JobService:
         workflow_executor (WorkflowExecutor): Executor for handling workflow operations
         total_gpu_memory (float): Total available GPU memory for job allocation, in bytes
         total_cpu_memory (float): Total available CPU memory for job allocation, in bytes
-        resource_manager (ResourceManager): Manager for handling system resources
     """
 
     def __init__(
         self,
         request_store: RequestStore,
         workflow_executor: WorkflowExecutor,
-        resource_manager: ResourceManager,
         total_gpu_memory: float,
         total_cpu_memory: float,
     ):
@@ -52,7 +49,6 @@ class JobService:
         Args:
             request_store (RequestStore): Store for managing job requests
             workflow_executor (WorkflowExecutor): Executor for workflow operations
-            resource_manager (ResourceManager): Manager for system resources
             total_gpu_memory (float): Total GPU memory available, in bytes
             total_cpu_memory (float): Total CPU memory available, in bytes
         """
@@ -60,7 +56,6 @@ class JobService:
         self.workflow_executor = workflow_executor
         self.total_gpu_memory = total_gpu_memory
         self.total_cpu_memory = total_cpu_memory
-        self.resource_manager = resource_manager
 
     def _validate_job_existence(
         self, job_id: str, request_parameters: RequestParameters
@@ -138,12 +133,10 @@ class JobService:
             index_build_parameters=index_build_parameters,
         )
 
-        # Allocate resources
-        allocation_success = self.resource_manager.allocate(
-            workflow.gpu_memory_required, workflow.cpu_memory_required
-        )
-
-        if not allocation_success:
+        if (
+            workflow.gpu_memory_required > self.total_gpu_memory
+            or workflow.cpu_memory_required > self.total_cpu_memory
+        ):
             self.request_store.delete(job_id)
             raise CapacityError(
                 f"Insufficient available resources to process job {job_id}"
@@ -193,12 +186,6 @@ class JobService:
             job_id, gpu_mem, cpu_mem, index_build_parameters
         )
 
-        logger.info(
-            f"Worker resource status for job id {job_id}: - "
-            f"GPU: {self.resource_manager.get_available_gpu_memory():,} bytes, "
-            f"CPU: {self.resource_manager.get_available_cpu_memory():,} bytes"
-        )
-
         self.workflow_executor.submit_workflow(workflow)
         logger.info(f"Successfully created workflow with job id: {job_id}")
 
@@ -215,3 +202,12 @@ class JobService:
             Optional[Job]: The job object if found, None otherwise
         """
         return self.request_store.get(job_id)
+
+    def get_jobs(self) -> Dict[str, Job]:
+        """
+        Retrieves all jobs from the request store.
+
+        Returns:
+            Dict[str, Job]: A dictionary of all jobs in the request store
+        """
+        return self.request_store.get_jobs()
