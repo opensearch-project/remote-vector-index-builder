@@ -54,6 +54,8 @@ jobs:
         if: always()
         run: |
           docker logout
+  
+  # Trigger the build of core image since api image is changed
   build-and-publish-api-image:
     needs: build-and-publish-core-image
     uses: ./.github/workflows/publish_remote_api_image.yml
