@@ -22,7 +22,7 @@ from e2e.api.vector_dataset_generator import VectorDatasetGenerator
 from app.models.job import JobStatus
 
 
-def run_e2e_index_builder(config_path: str = "api/test-datasets.yml"):
+def run_e2e_index_builder(config_path: str = "e2e/api/test-datasets.yml"):
 
     logger = logging.getLogger(__name__)
     dataset_generator = VectorDatasetGenerator(config_path)
@@ -184,4 +184,4 @@ def run_e2e_index_builder(config_path: str = "api/test-datasets.yml"):
 
 if __name__ == "__main__":
     configure_logger()
-    run_e2e_index_builder("api/test-datasets.yml")
+    run_e2e_index_builder("e2e/api/test-datasets.yml")

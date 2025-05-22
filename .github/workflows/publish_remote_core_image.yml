@@ -16,7 +16,9 @@ jobs:
   build-and-publish-core-image:
     name: Build and Publish Remote-Vector-Index-Builder Core Image
     if: github.repository == 'opensearch-project/remote-vector-index-builder'
-    runs-on: ubuntu-latest
+    runs-on:
+      group: selfhosted-gpu-runners
+      labels: g62xlarge
 
     steps:
       - name: Checkout code
@@ -52,8 +54,9 @@ jobs:
           docker push opensearchstaging/remote-vector-index-builder:core-latest
       - name: Runner Cleanups
         if: always()
-        run: |
-          docker logout
+        uses: ./.github/actions/docker-cleanup
+        with:
+          workspace: ${{ github.workspace }}
   
   # Trigger the build of core image since api image is changed
   build-and-publish-api-image:

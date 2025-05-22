@@ -61,18 +61,9 @@ jobs:
 
       - name: Runner Cleanups
         if: always()
-        run : | 
-          docker container prune -f
-          docker volume prune -af
-          docker network prune -f
-          docker rmi $(docker images -f "dangling=true" -q) || echo clean
-
-          rm -rf ${{ github.workspace }}/*
-          
-          docker image list
-          docker volume list
-          docker network list
-          docker ps -a
+        uses: ./.github/actions/docker-cleanup
+        with:
+          workspace: ${{ github.workspace }}
 
       - name: Check Test Results
         if: always()

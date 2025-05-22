@@ -1,0 +1,36 @@
+name: 'Docker Cleanup'
+description: 'Cleans up Docker resources including containers, volumes, networks, and dangling images'
+
+inputs:
+  workspace:
+    description: 'The workspace path to clean up'
+    required: true
+    default: ${{ github.workspace }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Clean Docker Resources
+      shell: bash
+      run: |
+        docker container prune -f
+        docker volume prune -af
+        docker network prune -f
+        docker rmi $(docker images -f "dangling=true" -q) || echo "No dangling images to remove"
+
+    - name: Clean Workspace
+      shell: bash
+      run: |
+        rm -rf ${{ inputs.workspace }}/*
+
+    - name: List Docker Resources
+      shell: bash
+      run: |
+        docker image list
+        docker volume list
+        docker network list
+        docker ps -a
+
+    - name: Docker Logout
+      shell: bash
+      run: docker logout

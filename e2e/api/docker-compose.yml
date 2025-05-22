@@ -17,9 +17,9 @@ services:
     container_name: remote-vector-index-builder
     image: remote-vector-index-builder:e2e-latest
     command: >
-      bash -c "pwd & fastapi run ../remote_vector_index_builder/app/main.py --port 1025 &
+      bash -c "pwd & fastapi run remote_vector_index_builder/app/main.py --port 1025 &
               sleep 5 &&
-              python api/run_e2e.py"
+              python e2e/api/run_e2e.py"
     environment:
       - S3_ENDPOINT_URL=http://localstack-main:4566
       - AWS_ACCESS_KEY_ID=test

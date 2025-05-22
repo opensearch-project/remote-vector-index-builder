@@ -7,16 +7,23 @@
 
 FROM opensearchstaging/remote-vector-index-builder:core-latest
 
-WORKDIR /remote_vector_index_builder
+USER root
 
-COPY ./remote_vector_index_builder/app/requirements.txt /remote_vector_index_builder/app/requirements.txt
+WORKDIR /app
 
-RUN pip install --no-cache-dir --upgrade -r /remote_vector_index_builder/app/requirements.txt
+COPY ./remote_vector_index_builder/app/requirements.txt /app/remote_vector_index_builder/app/requirements.txt
 
-COPY ./remote_vector_index_builder/app /remote_vector_index_builder/app
+RUN pip install --no-cache-dir --upgrade -r /app/remote_vector_index_builder/app/requirements.txt
 
-ENV PYTHONPATH='${PYTHONPATH}:/tmp/faiss/build/faiss/python:/remote_vector_index_builder'
+COPY ./remote_vector_index_builder/app /app/remote_vector_index_builder/app
 
-RUN ["python", "app/test_imports.py"]
+RUN pip install -e ./remote_vector_index_builder/app
 
-CMD ["fastapi", "run", "app/main.py", "--port", "1025"]
+ENV PYTHONPATH="${PYTHONPATH}:/app"
+
+RUN chown -R appuser:appuser /app
+USER appuser
+
+RUN ["python", "./remote_vector_index_builder/app/test_imports.py"]
+
+CMD ["fastapi", "run", "./remote_vector_index_builder/app/main.py", "--port", "1025"]

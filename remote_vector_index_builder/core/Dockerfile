@@ -1,12 +1,22 @@
 FROM opensearchstaging/remote-vector-index-builder:faiss-base-latest
 
-WORKDIR /remote_vector_index_builder
+USER root
 
-COPY ./remote_vector_index_builder/core/requirements.txt /remote_vector_index_builder/core/requirements.txt
+WORKDIR /app
 
-RUN pip install --no-cache-dir --upgrade -r /remote_vector_index_builder/core/requirements.txt
+COPY ./remote_vector_index_builder/core/requirements.txt /app/remote_vector_index_builder/core/requirements.txt
 
-COPY ./remote_vector_index_builder/core /remote_vector_index_builder/core
+RUN pip install --no-cache-dir --upgrade -r /app/remote_vector_index_builder/core/requirements.txt
 
-ENV PYTHONPATH='${PYTHONPATH}:/tmp/faiss/build/faiss/python:/remote_vector_index_builder'
-RUN ["python", "core/test_imports.py"]
+COPY ./remote_vector_index_builder/core /app/remote_vector_index_builder/core
+
+RUN pip install -e ./remote_vector_index_builder/core
+
+COPY ./remote_vector_index_builder/__init__.py /app/remote_vector_index_builder/__init__.py
+
+ENV PYTHONPATH="${PYTHONPATH}:/app"
+
+RUN chown -R appuser:appuser /app
+USER appuser
+
+RUN ["python", "./remote_vector_index_builder/core/test_imports.py"]
