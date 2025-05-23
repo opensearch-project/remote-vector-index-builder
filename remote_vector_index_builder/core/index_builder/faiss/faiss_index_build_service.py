@@ -63,7 +63,7 @@ class FaissIndexBuildService(IndexBuildService):
             # Step 1a: Create a structured GPUIndexConfig having defaults,
             # from a partial dictionary set from index build params
             gpu_index_config_params = {
-                "ivf_pq_build_params": {
+                "ivf_pq_params": {
                     "n_lists": calculate_ivf_pq_n_lists(
                         index_build_parameters.doc_count
                     ),

@@ -119,7 +119,7 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
         gpu_index_cagra_config.build_algo = self._configure_build_algo()
 
         if self.graph_build_algo == CagraGraphBuildAlgo.IVF_PQ:
-            gpu_index_cagra_config.ivf_pq_build_params = (
+            gpu_index_cagra_config.ivf_pq_params = (
                 self.ivf_pq_build_config.to_faiss_config()
             )
             gpu_index_cagra_config.ivf_pq_search_params = (
@@ -147,8 +147,8 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
         # Create a copy of params to avoid modifying the original
         params_copy = params.copy()
         # Extract and configure IVF-PQ build parameters
-        ivf_pq_build_params = params_copy.pop("ivf_pq_build_params", {})
-        ivf_pq_build_config = IVFPQBuildCagraConfig.from_dict(ivf_pq_build_params)
+        ivf_pq_params = params_copy.pop("ivf_pq_params", {})
+        ivf_pq_build_config = IVFPQBuildCagraConfig.from_dict(ivf_pq_params)
 
         # Extract and configure IVF-PQ search parameters
         ivf_pq_search_params = params_copy.pop("ivf_pq_search_params", {})
@@ -201,9 +201,11 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
             # Configure the distance metric
             metric = configure_metric(space_type)
 
+            res = faiss.StandardGpuResources()
+            res.noTempMemory()
             # Create GPU CAGRA index with specified configuration
             faiss_gpu_index = faiss.GpuIndexCagra(
-                faiss.StandardGpuResources(),
+                res,
                 dataset_dimension,
                 metric,
                 faiss_gpu_index_config,

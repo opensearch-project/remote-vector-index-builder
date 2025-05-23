@@ -38,7 +38,7 @@ class TestFaissGPUIndexCagraBuilder:
             "store_dataset": True,
             "refine_rate": 3.0,
             "graph_build_algo": CagraGraphBuildAlgo.IVF_PQ,
-            "ivf_pq_build_params": {"n_lists": 2048},
+            "ivf_pq_params": {"n_lists": 2048},
             "ivf_pq_search_params": {"n_probes": 16},
         }
         return params
@@ -105,7 +105,7 @@ class TestFaissGPUIndexCagraBuilder:
 
         # Test IVF-PQ configurations if present
         if custom_builder.graph_build_algo == CagraGraphBuildAlgo.IVF_PQ:
-            assert config.ivf_pq_build_params is not None
+            assert config.ivf_pq_params is not None
             assert config.ivf_pq_search_params is not None
 
     def test_from_dict_custom(self, custom_params):
@@ -124,7 +124,7 @@ class TestFaissGPUIndexCagraBuilder:
 
         assert (
             builder.ivf_pq_build_config.n_lists
-            == custom_params["ivf_pq_build_params"]["n_lists"]
+            == custom_params["ivf_pq_params"]["n_lists"]
         )
         assert (
             builder.ivf_pq_search_config.n_probes
