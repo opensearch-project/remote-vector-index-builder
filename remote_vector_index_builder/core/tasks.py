@@ -31,13 +31,15 @@ import os
 import tempfile
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Any, Dict, Optional
 from timeit import default_timer as timer
+from typing import Any, Dict, Optional
 
 from core.common.models import IndexBuildParameters
 from core.common.models import VectorsDataset
 from core.index_builder.faiss.faiss_index_build_service import FaissIndexBuildService
 from core.object_store.object_store_factory import ObjectStoreFactory
+
+from remote_vector_index_builder.core.object_store.object_store import ObjectStore
 
 logger = logging.getLogger(__name__)
 
@@ -93,17 +95,21 @@ def run_tasks(
 
         vectors_dataset = None
         try:
-            logger.info(
+            logger.debug(
                 f"Starting task execution for vector path: {index_build_params.vector_path}"
             )
 
-            logger.info(
+            object_store = ObjectStoreFactory.create_object_store(
+                index_build_params, object_store_config
+            )
+
+            logger.debug(
                 f"Downloading vector and doc id blobs for vector path: {index_build_params.vector_path}"
             )
             t1 = timer()
             vectors_dataset = create_vectors_dataset(
                 index_build_params=index_build_params,
-                object_store_config=object_store_config,
+                object_store=object_store,
                 vector_bytes_buffer=vector_buffer,
                 doc_id_bytes_buffer=doc_id_buffer,
             )
@@ -117,7 +123,7 @@ def run_tasks(
             directory = os.path.dirname(index_local_path)
             os.makedirs(directory, exist_ok=True)
 
-            logger.info(
+            logger.debug(
                 f"Building GPU index for vector path: {index_build_params.vector_path}"
             )
 
@@ -135,14 +141,14 @@ def run_tasks(
 
             vectors_dataset.free_vectors_space()
 
-            logger.info(
+            logger.debug(
                 f"Uploading index for vector path: {index_build_params.vector_path}"
             )
 
             t1 = timer()
             remote_path = upload_index(
                 index_build_params=index_build_params,
-                object_store_config=object_store_config,
+                object_store=object_store,
                 index_local_path=index_local_path,
             )
             t2 = timer()
@@ -153,7 +159,7 @@ def run_tasks(
 
             os.remove(index_local_path)
 
-            logger.info(
+            logger.debug(
                 f"Ending task execution for vector path: {index_build_params.vector_path}"
             )
             return TaskResult(file_name=os.path.basename(remote_path))
@@ -204,7 +210,7 @@ def build_index(
 
 def create_vectors_dataset(
     index_build_params: IndexBuildParameters,
-    object_store_config: Dict[str, Any],
+    object_store: ObjectStore,
     vector_bytes_buffer: BytesIO,
     doc_id_bytes_buffer: BytesIO,
 ) -> VectorsDataset:
@@ -223,8 +229,7 @@ def create_vectors_dataset(
             - vector_path: Path to the vector data in object storage
             - doc_id_path: Path to the document IDs in object storage
             - repository_type: Type of object store to use
-        object_store_config (Dict[str, Any]): Configuration for the object store
-            containing connection details
+        object_store (ObjectStore): Object store instance
         vector_bytes_buffer: Buffer for storing vector binary data
         doc_id_bytes_buffer: Buffer for storing doc id binary data
 
@@ -249,10 +254,6 @@ def create_vectors_dataset(
         UnsupportedObjectStoreTypeError: If the index_build_params.repository_type is not supported
 
     """
-    object_store = ObjectStoreFactory.create_object_store(
-        index_build_params, object_store_config
-    )
-
     object_store.read_blob(index_build_params.vector_path, vector_bytes_buffer)
     object_store.read_blob(index_build_params.doc_id_path, doc_id_bytes_buffer)
 
@@ -267,7 +268,7 @@ def create_vectors_dataset(
 
 def upload_index(
     index_build_params: IndexBuildParameters,
-    object_store_config: Dict[str, Any],
+    object_store: ObjectStore,
     index_local_path: str,
 ) -> str:
     """
@@ -276,8 +277,7 @@ def upload_index(
     Args:
         index_build_params (IndexBuildParameters): Parameters for the index build process,
             containing the vector path which is used to determine the upload destination
-        object_store_config (Dict[str, Any]): Configuration dictionary for the object store
-            containing connection details
+        object_store (ObjectStore): Object Store instance
         index_local_path (str): Local filesystem path where the built index is stored
 
     Returns:
@@ -295,9 +295,6 @@ def upload_index(
         BlobError: If there are issues uploading to the object store
         UnsupportedObjectStoreTypeError: If the index_build_params.repository_type is not supported
     """
-    object_store = ObjectStoreFactory.create_object_store(
-        index_build_params, object_store_config
-    )
 
     # vector path has already been validated that it ends with '.knnvec' by pydantic regex
     vector_root_path = ".".join(index_build_params.vector_path.split(".")[0:-1])

@@ -58,22 +58,17 @@ def test_successful_creation(
     vectors = BytesIO()
     doc_ids = BytesIO()
     # Execute
-    result = create_vectors_dataset(
-        index_build_parameters, object_store_config, vectors, doc_ids
-    )
+    run_tasks(index_build_parameters, object_store_config)
 
     vectors.close()
     doc_ids.close()
 
-    # Verify
+    # Verify only 1 object store instance is created for the entire task execution
     mock_object_store_factory.assert_called_once_with(
         index_build_parameters, object_store_config
     )
     assert mock_object_store.read_blob.call_count == 2
     mock_vectors_dataset_parse.assert_called_once()
-    assert isinstance(result, VectorsDataset)
-
-    result.free_vectors_space()
 
 
 def test_download_blob_error_handling(
@@ -92,7 +87,7 @@ def test_download_blob_error_handling(
     # Execute and verify
     with pytest.raises(BlobError):
         create_vectors_dataset(
-            index_build_parameters, object_store_config, vectors, doc_ids
+            index_build_parameters, mock_object_store, vectors, doc_ids
         )
 
     vectors.close()
@@ -117,13 +112,9 @@ def test_successful_upload(
     local_path = "/tmp/index"
 
     # Execute
-    upload_index(index_build_parameters, object_store_config, local_path)
+    upload_index(index_build_parameters, mock_object_store, local_path)
 
     # Verify
-    mock_object_store_factory.assert_called_once_with(
-        index_build_parameters, object_store_config
-    )
-
     vector_name = index_build_parameters.vector_path.split(".knnvec")[0]
     remote_path = vector_name + "." + index_build_parameters.engine
     mock_object_store.write_blob.assert_called_once_with(local_path, remote_path)
@@ -142,7 +133,7 @@ def test_upload_blob_error_handling(
 
     # Execute and verify
     with pytest.raises(BlobError):
-        upload_index(index_build_parameters, object_store_config, local_path)
+        upload_index(index_build_parameters, mock_object_store, local_path)
 
 
 def test_successful_task_execution(index_build_parameters, mock_vectors_dataset):
@@ -176,7 +167,11 @@ def test_successful_task_execution(index_build_parameters, mock_vectors_dataset)
 
 
 def test_successful_task_execution_with_object_store_config(
-    index_build_parameters, mock_vectors_dataset, object_store_config
+    index_build_parameters,
+    mock_vectors_dataset,
+    object_store_config,
+    mock_object_store,
+    mock_object_store_factory,
 ):
     with patch("core.tasks.create_vectors_dataset") as mock_create_dataset, patch(
         "core.tasks.build_index"
@@ -201,10 +196,8 @@ def test_successful_task_execution_with_object_store_config(
         # Verify mock calls
         mock_create_dataset.assert_called_once()
         call_args = mock_create_dataset.call_args[1]
-        assert (
-            "object_store_config" in call_args
-            and call_args["object_store_config"] == object_store_config
-        )
+        assert "object_store" in call_args
+
         mock_build_index.assert_called_once()
         mock_upload_index.assert_called_once()
         assert mock_vectors_dataset.free_vectors_space.call_count == 2

@@ -6,12 +6,12 @@
 # compatible open source license.
 
 import logging
+import math
 import os
+import sys
 import threading
 from functools import cache
-import math
 from io import BytesIO
-import sys
 from typing import Any, Dict, Optional
 
 import boto3
@@ -240,9 +240,11 @@ class S3ObjectStore(ObjectStore):
             callback_func = callback
 
         try:
+            # Get KMS key for this object and save it to this class instance, to be used for object uploads later
+            self.get_kms_key(remote_store_path)
+
             # Create transfer config object
             s3_transfer_config = TransferConfig(**self.download_transfer_config)
-
             self.s3_client.download_fileobj(
                 self.bucket,
                 remote_store_path,
@@ -256,6 +258,24 @@ class S3ObjectStore(ObjectStore):
             raise BlobError(f"Error calling boto3.download_fileobj: {e}") from e
         except ClientError as e:
             raise BlobError(f"Error downloading file: {e}") from e
+
+    def get_kms_key(self, remote_store_path: str) -> None:
+        """
+        Checks the S3 object metadata to see if there is a KMS key present for SSE-KMS. If there is a key present, then
+        this same KMS key will be used in future object uploads.
+        """
+
+        # Only perform this check if the KMS key is not already saved
+        if not self.upload_args.get("SSEKMSKeyId"):
+            head_obj_response = self.s3_client.head_object(
+                Bucket=self.bucket, Key=remote_store_path
+            )
+
+            # If KMS key is found in object metadata, then configure SSE-KMS for future uploads
+            if "SSEKMSKeyId" in head_obj_response:
+                self.upload_args["ServerSideEncryption"] = "aws:kms"
+                self.upload_args["SSEKMSKeyId"] = head_obj_response["SSEKMSKeyId"]
+                # We do not specify encryption context for now
 
     def write_blob(self, local_file_path: str, remote_store_path: str) -> None:
         """
