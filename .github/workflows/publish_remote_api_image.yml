@@ -23,7 +23,9 @@ jobs:
   build-and-publish-api-image:
     name: Build and Publish Remote-Vector-Index-Builder API Image
     if: github.repository == 'opensearch-project/remote-vector-index-builder'
-    runs-on: ubuntu-latest
+    runs-on:
+      group: selfhosted-gpu-runners
+      labels: g62xlarge
 
     steps:
       - name: Checkout code
