@@ -53,7 +53,7 @@ class IVFPQBuildCagraConfig:
     # to use as little GPU memory for the database as possible.
     conservative_memory_allocation: bool = True
 
-    force_random_rotation: bool = False
+    force_random_rotation: bool = True
 
     @staticmethod
     def _validate_params(params: Dict[str, Any]) -> None:
