@@ -37,7 +37,7 @@ class TestIVFPQBuildCagraConfig:
         assert default_config.pq_bits == 8
         assert default_config.pq_dim == 0
         assert default_config.conservative_memory_allocation is True
-        assert default_config.force_random_rotation is False
+        assert default_config.force_random_rotation is True
 
     def test_custom_initialization(self, custom_params):
         config = IVFPQBuildCagraConfig(**custom_params)
@@ -110,4 +110,4 @@ class TestIVFPQBuildCagraConfig:
         assert config.pq_bits == 8  # default value
         assert config.pq_dim == 0  # default value
         assert config.conservative_memory_allocation is True  # default value
-        assert config.force_random_rotation is False
+        assert config.force_random_rotation is True
