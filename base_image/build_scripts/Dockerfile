@@ -1,4 +1,4 @@
-FROM nvidia/cuda:12.8.1-base-ubuntu24.04
+FROM nvidia/cuda:12.9.0-base-ubuntu24.04
 
 # Install base utilities and also the dependencies for faiss
 RUN apt-get update && apt-get upgrade -y \
