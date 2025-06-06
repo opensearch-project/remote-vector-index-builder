@@ -1,4 +1,4 @@
-name: Build and Publish Remote-Vector-Index-Builder Faiss Base Image to Docker
+name: Build and Publish Remote-Vector-Index-Builder Faiss Base Snapshot Image to Docker
 
 on:
   push:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   build-and-publish-faiss-base-image:
-    name: Build and Publish Remote-Vector-Index-Builder Faiss Base Image
+    name: Build and Publish Remote-Vector-Index-Builder Faiss Base Snapshot Image
     if: github.repository == 'opensearch-project/remote-vector-index-builder'
     runs-on:
       group: selfhosted-gpu-runners
@@ -28,8 +28,7 @@ jobs:
 
       - name: Build Docker Image
         run : |
-            docker build  -f ./base_image/build_scripts/Dockerfile . -t opensearchstaging/remote-vector-index-builder:faiss-base-1.0.0
-            docker tag opensearchstaging/remote-vector-index-builder:faiss-base-1.0.0 opensearchstaging/remote-vector-index-builder:faiss-base-latest
+            docker build  -f ./base_image/build_scripts/Dockerfile . -t opensearchstaging/remote-vector-index-builder:faiss-base-snapshot
       
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -52,8 +51,7 @@ jobs:
 
       - name: Push Docker Image
         run : |
-          docker push opensearchstaging/remote-vector-index-builder:faiss-base-1.0.0
-          docker push opensearchstaging/remote-vector-index-builder:faiss-base-latest
+          docker push opensearchstaging/remote-vector-index-builder:faiss-base-snapshot
 
       - name: Runner Cleanups
         if: always()
