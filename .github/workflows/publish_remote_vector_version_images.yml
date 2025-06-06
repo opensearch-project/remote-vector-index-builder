@@ -1,0 +1,219 @@
+name: Publish Remote-Vector-Index-Builder Version Images to opensearchstaging
+
+on:
+    workflow_dispatch:
+      inputs:
+        publish_latest:
+            description: 'Publish latest tag'
+            required: true
+            type: boolean
+            default: true
+        publish_version:
+            description: 'Publish version tag'
+            required: true
+            type: boolean
+            default: true
+        base_image_tag:
+            description: 'Base image tag to use (default: faiss-base-snapshot)'
+            required: false
+            type: string
+            default: 'faiss-base-latest'
+        core_image_tag:
+            description: 'Core image tag to use (default: core-snapshot)'
+            required: false
+            type: string
+            default: 'core-latest'
+        api_image_tag:
+            description: 'API image tag to use (default: api-snapshot)'
+            required: false
+            type: string
+            default: 'api-latest'
+        remove_version_images:
+            description: 'Remove version-tagged images after pushing'
+            required: true
+            type: boolean
+            default: true
+        remove_latest_images:
+            description: 'Remove latest/snapshot-tagged images after pushing'
+            required: true
+            type: boolean
+            default: false
+    pull_request:
+      branches:
+        - "*"
+
+permissions:
+  id-token: write
+  contents: write
+  issues: write
+
+jobs:
+  build-and-publish-images:
+    name: Build and Publish Remote-Vector-Index-Builder Docker Images
+    if: github.repository == 'opensearch-project/remote-vector-index-builder'
+    runs-on:
+      group: selfhosted-gpu-runners
+      labels: g62xlarge
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+            submodules: 'recursive'
+
+      - name: Get Version
+        id: get-version
+        run: echo "VERSION=$(cat VERSION)" >> $GITHUB_OUTPUT
+
+      - name: Set Image Tags
+        id: image-tags
+        run: |
+          # Set base image tag
+          if [[ -n "${{ github.event.inputs.base_image_tag }}" ]]; then
+            echo "base_tag=${{ github.event.inputs.base_image_tag }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" =~ ^refs/heads/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "base_tag=faiss-base-latest" >> $GITHUB_OUTPUT
+          else
+            echo "base_tag=faiss-base-snapshot" >> $GITHUB_OUTPUT
+          fi
+
+          # Set core image tag
+          if [[ -n "${{ github.event.inputs.core_image_tag }}" ]]; then
+            echo "core_tag=${{ github.event.inputs.core_image_tag }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" =~ ^refs/heads/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "core_tag=core-latest" >> $GITHUB_OUTPUT
+          else
+            echo "core_tag=core-snapshot" >> $GITHUB_OUTPUT
+          fi
+
+          # Set api image tag
+          if [[ -n "${{ github.event.inputs.api_image_tag }}" ]]; then
+            echo "api_tag=${{ github.event.inputs.api_image_tag }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" =~ ^refs/heads/[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "api_tag=api-latest" >> $GITHUB_OUTPUT
+          else
+            echo "api_tag=api-snapshot" >> $GITHUB_OUTPUT
+          fi
+      - name: Build Faiss Base Docker Image
+        run : |
+          docker build -f ./base_image/build_scripts/Dockerfile . \
+            -t opensearchstaging/remote-vector-index-builder:${{ steps.image-tags.outputs.base_tag }} \
+            -t opensearchstaging/remote-vector-index-builder:faiss-base-${{ steps.get-version.outputs.VERSION }}
+      - name: Build Core Docker Image
+        run : |
+          docker build -f ./remote_vector_index_builder/core/Dockerfile . \
+            --build-arg BASE_IMAGE_TAG=${{ steps.image-tags.outputs.base_tag }} \
+            -t opensearchstaging/remote-vector-index-builder:${{ steps.image-tags.outputs.core_tag }} \
+            -t opensearchstaging/remote-vector-index-builder:core-${{ steps.get-version.outputs.VERSION }}
+      - name: Build API Docker Image
+        run : |
+          docker build -f ./remote_vector_index_builder/app/Dockerfile . \
+            --build-arg CORE_IMAGE_TAG=${{ steps.image-tags.outputs.core_tag }} \
+            -t opensearchstaging/remote-vector-index-builder:${{ steps.image-tags.outputs.api_tag }} \
+            -t opensearchstaging/remote-vector-index-builder:api-${{ steps.get-version.outputs.VERSION }}
+
+      - name: Get Approvers
+        id: get_approvers
+        run: |
+          echo "approvers=$(cat .github/CODEOWNERS | grep @ | tr -d '* ' | sed 's/@/,/g' | sed 's/,//1')" >> $GITHUB_OUTPUT
+
+      # https://github.com/trstringer/manual-approval
+      - name: Get Manual Workflow Approval
+        uses: trstringer/manual-approval@v1
+        with: 
+          secret: ${{ github.TOKEN }}
+          approvers: ${{ steps.get_approvers.outputs.approvers }}
+          minimum-approvals: 1
+          exclude-workflow-initiator-as-approver: false
+          issue-title: 'Publish Remote-Vector-Index-Builder Version v${{ steps.get-version.outputs.version }} Images to opensearchstaging '
+          issue-body: 'Please approve or deny publishing Remote-Vector-Index-Builder Version v${{ steps.get-version.outputs.version }} Images to opensearchstaging **COMMIT**: ${{ github.sha }}.'
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.REMOTE_VECTOR_DOCKER_ROLE }}
+          aws-region: us-east-1
+
+      - name: Retrieve Values
+        id: retrieve-values
+        run: |
+          DOCKERHUB_PASSWORD=`aws secretsmanager get-secret-value --secret-id jenkins-staging-dockerhub-credential --query SecretString --output text`
+          echo "::add-mask::$DOCKERHUB_PASSWORD"
+          echo "dockerhub-password=$DOCKERHUB_PASSWORD" >> $GITHUB_OUTPUT
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.REMOTE_VECTOR_DOCKER_USERNAME }}
+          password: ${{ steps.retrieve-values.outputs.dockerhub-password }}
+      
+      - name: Push Docker Image
+        run : |
+          if ${{ github.event.inputs.publish_version }}; then
+            echo "Pushing version-tagged images"
+            docker push opensearchstaging/remote-vector-index-builder:faiss-base-${{ steps.get-version.outputs.VERSION }}
+            docker push opensearchstaging/remote-vector-index-builder:core-${{ steps.get-version.outputs.VERSION }}
+            docker push opensearchstaging/remote-vector-index-builder:api-${{ steps.get-version.outputs.VERSION }}
+          else
+            echo "Skipping version-tagged images"
+          fi
+          if ${{ github.event.inputs.publish_latest }}; then
+            docker push opensearchstaging/remote-vector-index-builder:${{ steps.image-tags.outputs.base_tag }}
+            docker push opensearchstaging/remote-vector-index-builder:${{ steps.image-tags.outputs.core_tag }}
+            docker push opensearchstaging/remote-vector-index-builder:${{ steps.image-tags.outputs.api_tag }}
+          else
+            echo "Skipping latest-tagged images"
+          fi
+      
+      - name: Set Cleanup Flags
+        id: cleanup-flags
+        if: always()
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "remove_version_images=true" >> $GITHUB_OUTPUT
+            echo "remove_latest_images=false" >> $GITHUB_OUTPUT
+          else
+            echo "remove_version_images=${{ github.event.inputs.remove_version_images }}" >> $GITHUB_OUTPUT
+            echo "remove_latest_images=${{ github.event.inputs.remove_latest_images }}" >> $GITHUB_OUTPUT
+          fi
+      - name: Cleanup Docker Images
+        if: always()
+        shell: bash
+        run: |
+          # Function to safely remove docker image
+          function remove_image() {
+            local image="$1"
+            if docker image inspect "$image" >/dev/null 2>&1; then
+              echo "Force Removing image: $image"
+              docker rmi -f "$image" || true
+            else
+              echo "Image not found: $image"
+            fi
+          }
+          
+          # Remove version-tagged images if flag is set
+          if [[ "${{ steps.cleanup-flags.outputs.remove_version_images }}" == "true" ]]; then
+            echo "Removing version-tagged images"
+            remove_image "opensearchstaging/remote-vector-index-builder:faiss-base-${{ steps.get-version.outputs.VERSION }}"
+            remove_image "opensearchstaging/remote-vector-index-builder:core-${{ steps.get-version.outputs.VERSION }}"
+            remove_image "opensearchstaging/remote-vector-index-builder:api-${{ steps.get-version.outputs.VERSION }}"
+          else
+            echo "Skipping removal of version-tagged images"
+          fi
+          
+          # Remove latest/snapshot-tagged images if flag is set
+          if [[ "${{ steps.cleanup-flags.outputs.remove_version_images }}" == "true" ]]; then
+            echo "Removing latest/snapshot-tagged images"
+            remove_image "opensearchstaging/remote-vector-index-builder:${{ steps.image-tags.outputs.base_tag }}"
+            remove_image "opensearchstaging/remote-vector-index-builder:${{ steps.image-tags.outputs.core_tag }}"
+            remove_image "opensearchstaging/remote-vector-index-builder:${{ steps.image-tags.outputs.api_tag }}"
+          else
+            echo "Skipping removal of latest/snapshot-tagged images"
+          fi
+
+      - name: Runner Cleanups
+        if: always()
+        uses: ./.github/actions/docker-cleanup
+        with:
+          workspace: ${{ github.workspace }}
