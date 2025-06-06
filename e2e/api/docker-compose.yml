@@ -15,7 +15,7 @@ services:
       - vector-network
   remote-vector-index-builder:
     container_name: remote-vector-index-builder
-    image: remote-vector-index-builder:e2e-latest
+    image: remote-vector-index-builder:e2e-snapshot
     command: >
       bash -c "pwd & fastapi run remote_vector_index_builder/app/main.py --port 1025 &
               sleep 5 &&

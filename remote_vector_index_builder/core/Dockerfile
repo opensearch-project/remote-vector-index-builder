@@ -1,5 +1,5 @@
-FROM opensearchstaging/remote-vector-index-builder:faiss-base-latest
-
+ARG BASE_IMAGE_TAG=faiss-base-snapshot
+FROM opensearchstaging/remote-vector-index-builder:${BASE_IMAGE_TAG}
 USER root
 
 WORKDIR /app
