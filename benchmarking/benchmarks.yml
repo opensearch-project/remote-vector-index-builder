@@ -1,0 +1,217 @@
+gpu:
+  sift-128:
+    dataset_name: sift
+    download_url: "https://ann-benchmarks.com/sift-128-euclidean.hdf5"
+    normalize: false
+    compression:
+      - 0
+      - 4
+    indexing-parameters:
+      - { "refine_rate": 1, "ivf_pq_params": {"kmeans_trainset_fraction": 0.1 }}
+      - { "refine_rate": 1, "ivf_pq_params": {"kmeans_trainset_fraction": 0.5 }}
+      - { "refine_rate": 2, "ivf_pq_params": {"kmeans_trainset_fraction": 0.1 }}
+      - { "refine_rate": 2, "ivf_pq_params": {"kmeans_trainset_fraction": 0.5 }}
+    search-parameters:
+      - {"ef_search": 256}
+  ms-marco-384:
+    dataset_name: ms-marco-384
+    download_url: "https://huggingface.co/datasets/navneet1v/datasets/resolve/main/ms_marco-384-1m.hdf5?download=true"
+    normalize: false
+    compression:
+      - 0
+      - 4
+    indexing-parameters:
+      - { "refine_rate": 1, "ivf_pq_params": {"kmeans_trainset_fraction": 0.1 }}
+      - { "refine_rate": 1, "ivf_pq_params": {"kmeans_trainset_fraction": 0.5 }}
+      - { "refine_rate": 2, "ivf_pq_params": {"kmeans_trainset_fraction": 0.1 }}
+      - { "refine_rate": 2, "ivf_pq_params": {"kmeans_trainset_fraction": 0.5 }}
+    search-parameters:
+      - {"ef_search": 256}
+  cohere-768-l2:
+    dataset_name: cohere-768-l2
+    download_url: https://huggingface.co/datasets/navneet1v/datasets/resolve/main/cohere-768-l2.hdf5?download=true
+    normalize: false
+    compression:
+      - 0
+      - 4
+    indexing-parameters:
+      - { "refine_rate": 1, "ivf_pq_params": {"kmeans_trainset_fraction": 0.1 }}
+      - { "refine_rate": 1, "ivf_pq_params": {"kmeans_trainset_fraction": 0.5 }}
+      - { "refine_rate": 2, "ivf_pq_params": {"kmeans_trainset_fraction": 0.1 }}
+      - { "refine_rate": 2, "ivf_pq_params": {"kmeans_trainset_fraction": 0.5 }}
+    search-parameters:
+      - { "ef_search": 256 }
+  cohere-768-ip:
+    dataset_name: cohere-768-ip
+    download_url: https://dbyiw3u3rf9yr.cloudfront.net/corpora/vectorsearch/cohere-wikipedia-22-12-en-embeddings/documents-1m.hdf5.bz2
+    compressed: true
+    compression-type: bz2
+    normalize: false
+    compression:
+      - 0
+      - 4
+    space-type: innerproduct
+    indexing-parameters:
+      - { "refine_rate": 1, "ivf_pq_params": {"kmeans_trainset_fraction": 0.1 }}
+      - { "refine_rate": 1, "ivf_pq_params": {"kmeans_trainset_fraction": 0.5 }}
+      - { "refine_rate": 2, "ivf_pq_params": {"kmeans_trainset_fraction": 0.1 }}
+      - { "refine_rate": 2, "ivf_pq_params": {"kmeans_trainset_fraction": 0.5 }}
+    search-parameters:
+      - { "ef_search": 256 }
+  cohere-10M-768-ip:
+    dataset_name: cohere-10M-768-ip
+    download_url: https://dbyiw3u3rf9yr.cloudfront.net/corpora/vectorsearch/cohere-wikipedia-22-12-en-embeddings/documents-10m.hdf5.bz2
+    compressed: true
+    compression-type: bz2
+    normalize: false
+    compression:
+      - 0
+      - 4
+    space-type: innerproduct
+    indexing-parameters:
+      - { "refine_rate": 1, "ivf_pq_params": {"kmeans_trainset_fraction": 0.1 }}
+      - { "refine_rate": 1, "ivf_pq_params": {"kmeans_trainset_fraction": 0.5 }}
+      - { "refine_rate": 2, "ivf_pq_params": {"kmeans_trainset_fraction": 0.1 }}
+      - { "refine_rate": 2, "ivf_pq_params": {"kmeans_trainset_fraction": 0.5 }}
+    search-parameters:
+      - { "ef_search": 256 }
+  gist-960:
+    dataset_name: gist
+    download_url: "http://ann-benchmarks.com/gist-960-euclidean.hdf5"
+    compression:
+      - 0
+      - 4
+    indexing-parameters:
+      - { "refine_rate": 1, "ivf_pq_params": {"kmeans_trainset_fraction": 0.1 }}
+      - { "refine_rate": 1, "ivf_pq_params": {"kmeans_trainset_fraction": 0.5 }}
+      - { "refine_rate": 2, "ivf_pq_params": {"kmeans_trainset_fraction": 0.1 }}
+      - { "refine_rate": 2, "ivf_pq_params": {"kmeans_trainset_fraction": 0.5 }}
+    search-parameters:
+      - { "ef_search": 256 }
+  open-ai-1536:
+    dataset_name: open-ai-1536-temp
+    download_url: "https://huggingface.co/datasets/navneet1v/datasets/resolve/main/open-ai-1536-temp.hdf5?download=true"
+    compression:
+      - 0
+      - 4
+    indexing-parameters:
+      - { "refine_rate": 1, "ivf_pq_params": {"kmeans_trainset_fraction": 0.1 }}
+      - { "refine_rate": 1, "ivf_pq_params": {"kmeans_trainset_fraction": 0.5 }}
+      - { "refine_rate": 2, "ivf_pq_params": {"kmeans_trainset_fraction": 0.1 }}
+      - { "refine_rate": 2, "ivf_pq_params": {"kmeans_trainset_fraction": 0.5 }}
+    search-parameters:
+      - { "ef_search": 256 }
+  bigAnn-10M-128:
+    dataset_name: bigAnn-10M
+    download_url: "https://huggingface.co/datasets/navneet1v/datasets/resolve/main/bigann-10M-with-gt.hdf5?download=true"
+    compression:
+      - 0
+      - 4
+    indexing-parameters:
+      - { "refine_rate": 1, "ivf_pq_params": {"kmeans_trainset_fraction": 0.1 }}
+      - { "refine_rate": 1, "ivf_pq_params": {"kmeans_trainset_fraction": 0.5 }}
+      - { "refine_rate": 2, "ivf_pq_params": {"kmeans_trainset_fraction": 0.1 }}
+      - { "refine_rate": 2, "ivf_pq_params": {"kmeans_trainset_fraction": 0.5 }}
+    search-parameters:
+      - { "ef_search": 256 }
+cpu:
+  sift-128:
+    dataset_name: sift
+    download_url: "https://ann-benchmarks.com/sift-128-euclidean.hdf5"
+    normalize: false
+    indexing-parameters:
+      - { "ef_construction": 100 }
+      - { "ef_construction": 256 }
+      - { "ef_construction": 512 }
+      - { "ef_construction": 640 }
+      - { "ef_construction": 1024 }
+    search-parameters:
+      - {"ef_search": 256}
+  ms-marco-384:
+    dataset_name: ms-marco-384
+    download_url: "https://huggingface.co/datasets/navneet1v/datasets/resolve/main/ms_marco-384-1m.hdf5?download=true"
+    normalize: false
+    indexing-parameters:
+      - { "ef_construction": 100 }
+      - { "ef_construction": 256 }
+      - { "ef_construction": 512 }
+      - { "ef_construction": 640 }
+      - { "ef_construction": 1024 }
+    search-parameters:
+      - {"ef_search": 256}
+  cohere-768-l2:
+    dataset_name: cohere-768-l2
+    download_url: https://huggingface.co/datasets/navneet1v/datasets/resolve/main/cohere-768-l2.hdf5?download=true
+    normalize: false
+    indexing-parameters:
+      - { "ef_construction": 100 }
+      - { "ef_construction": 256 }
+      - { "ef_construction": 512 }
+      - { "ef_construction": 640 }
+      - { "ef_construction": 1024 }
+    search-parameters:
+      - { "ef_search": 256 }
+  cohere-768-ip:
+    dataset_name: cohere-768-ip
+    download_url: https://dbyiw3u3rf9yr.cloudfront.net/corpora/vectorsearch/cohere-wikipedia-22-12-en-embeddings/documents-1m.hdf5.bz2
+    compressed: true
+    compression-type: bz2
+    normalize: false
+    space-type: innerproduct
+    indexing-parameters:
+      - { "ef_construction": 100 }
+      - { "ef_construction": 256 }
+      - { "ef_construction": 512 }
+      - { "ef_construction": 640 }
+      - { "ef_construction": 1024 }
+    search-parameters:
+      - { "ef_search": 256 }
+  cohere-10M-768-ip:
+    dataset_name: cohere-10M-768-l2
+    download_url: https://dbyiw3u3rf9yr.cloudfront.net/corpora/vectorsearch/cohere-wikipedia-22-12-en-embeddings/documents-10m.hdf5.bz2
+    compressed: true
+    compression-type: bz2
+    normalize: false
+    space-type: innerproduct
+    indexing-parameters:
+      - { "ef_construction": 100 }
+      - { "ef_construction": 256 }
+      - { "ef_construction": 512 }
+      - { "ef_construction": 640 }
+      - { "ef_construction": 1024 }
+    search-parameters:
+      - {"ef_search": 256}
+  gist-960:
+    dataset_name: gist
+    download_url: "https://ann-benchmarks.com/gist-960-euclidean.hdf5"
+    normalize: false
+    indexing-parameters:
+      - { "ef_construction": 100 }
+      - { "ef_construction": 256 }
+      - { "ef_construction": 512 }
+      - { "ef_construction": 640 }
+      - { "ef_construction": 1024 }
+    search-parameters:
+      - {"ef_search": 256}
+  open-ai-1536:
+    dataset_name: open-ai-1536-temp
+    download_url: "https://huggingface.co/datasets/navneet1v/datasets/resolve/main/open-ai-1536-temp.hdf5?download=true"
+    indexing-parameters:
+      - { "ef_construction": 100 }
+      - { "ef_construction": 256 }
+      - { "ef_construction": 512 }
+      - { "ef_construction": 640 }
+      - { "ef_construction": 1024 }
+    search-parameters:
+      - {"ef_search": 256}
+  bigAnn-10M-128:
+    dataset_name: bigAnn-10M
+    download_url: "https://huggingface.co/datasets/navneet1v/datasets/resolve/main/bigann-10M-with-gt.hdf5?download=true"
+    indexing-parameters:
+      - { "ef_construction": 100 }
+      - { "ef_construction": 256 }
+      - { "ef_construction": 512 }
+      - { "ef_construction": 640 }
+      - { "ef_construction": 1024 }
+    search-parameters:
+      - {"ef_search": 256}
