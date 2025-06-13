@@ -1,0 +1,77 @@
+name: Release Opensearch Remote Vector Index Builder to OpensearchProject
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release Version'
+        type: string
+        required: true
+      release_latest_tag:
+            description: 'Publish latest tag'
+            required: true
+            type: boolean
+      release_version_tag:
+            description: 'Publish version tag'
+            required: true
+            type: boolean
+
+
+permissions:
+  id-token: write
+  contents: write
+  issues: write
+
+jobs:
+    release-image:
+      name: Release Opensearch Remote Vector Index Builder
+      if: github.repository == 'opensearch-project/remote-vector-index-builder'
+      runs-on: ubuntu-latest
+
+      steps:
+        - name: Get Approvers
+          id: get_approvers
+          run: |
+            echo "approvers=$(cat .github/CODEOWNERS | grep @ | tr -d '* ' | sed 's/@/,/g' | sed 's/,//1')" >> $GITHUB_OUTPUT
+
+        - name: Get Manual Workflow Approval
+          uses: trstringer/manual-approval@v1
+          with: 
+            secret: ${{ github.TOKEN }}
+            approvers: ${{ steps.get_approvers.outputs.approvers }}
+            minimum-approvals: 3
+            exclude-workflow-initiator-as-approver: false
+            issue-title: 'Release Remote-Vector-Index-Builder Version v${{ github.event.inputs.version }} Images to opensearchproject '
+            issue-body: >
+                Please approve or deny release of Remote-Vector-Index-Builder 
+                Version v${{ github.event.inputs.version }} Images to opensearchproject 
+                **COMMIT**: ${{ github.sha }}.
+                **RELEASE VERSION TAG**: ${{ github.event.inputs.release_version_tag }}
+                **RELEASE LATEST TAG**: ${{ github.event.inputs.release_latest_tag }}
+
+        - name: Create Release Description
+          run: | 
+            echo 'version: ${{ github.event.inputs.version }}' > release-description.yaml
+            echo 'release_version_tag: ${{ github.event.inputs.release_version_tag }}' >> release-description.yaml
+            echo 'release_latest_tag: ${{ github.event.inputs.release_latest_tag }}' >> release-description.yaml
+        - name: Create tag
+          uses: actions/github-script@v6
+          with:
+            github-token: ${{ github.TOKEN }}
+            script: |
+                github.rest.git.createRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: 'refs/tags/${{ github.event.inputs.version }}',
+                  sha: context.sha
+                })
+        - name: Draft release
+          uses: softprops/action-gh-release@v1
+          with:
+            draft: true
+            name: '${{ github.event.inputs.version }}'
+            tag_name: 'refs/tags/${{ github.event.inputs.version }}'
+            generate_release_notes: true
+            files: |
+              release-description.yaml
+
