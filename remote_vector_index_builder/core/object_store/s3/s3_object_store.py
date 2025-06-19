@@ -118,7 +118,7 @@ class S3ObjectStore(ObjectStore):
 
         self.DEFAULT_UPLOAD_TRANSFER_CONFIG = {
             "multipart_chunksize": 50 * 1024 * 1024,  # 50MB
-            "max_concurrency": get_cpus(factor=0.25),
+            "max_concurrency": get_cpus(factor=0.5),
             "multipart_threshold": 50 * 1024 * 1024,  # 50MB
         }
 
