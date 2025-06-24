@@ -40,7 +40,7 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
 
     store_dataset: bool = False
 
-    refine_rate: float = 2.0
+    refine_rate: float = 1.0
 
     ivf_pq_build_config: IVFPQBuildCagraConfig = field(
         default_factory=IVFPQBuildCagraConfig

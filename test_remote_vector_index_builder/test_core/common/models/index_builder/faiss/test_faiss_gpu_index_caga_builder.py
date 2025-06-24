@@ -54,7 +54,7 @@ class TestFaissGPUIndexCagraBuilder:
         assert default_builder.graph_degree == 32
         assert default_builder.graph_build_algo == CagraGraphBuildAlgo.IVF_PQ
         assert default_builder.store_dataset is False
-        assert default_builder.refine_rate == 2.0
+        assert default_builder.refine_rate == 1.0
         assert isinstance(default_builder.ivf_pq_build_config, IVFPQBuildCagraConfig)
         assert isinstance(default_builder.ivf_pq_search_config, IVFPQSearchCagraConfig)
 
