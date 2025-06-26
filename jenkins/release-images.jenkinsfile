@@ -24,9 +24,10 @@ standardReleasePipelineWithGenericTrigger(
                         ]
             }
         }
-        copyDockerImage("faiss-base-${TAG}")
-        copyDockerImage("core-${TAG}")
-        copyDockerImage("api-${TAG}")
+        def tagRaw = tag.replace('refs/tags/', '')
+        copyDockerImage("faiss-base-${tagRaw}")
+        copyDockerImage("core-${tagRaw}")
+        copyDockerImage("api-${tagRaw}")
         copyDockerImage("faiss-base-latest")
         copyDockerImage("core-latest")
         copyDockerImage("api-latest")
