@@ -23,6 +23,10 @@ from core.common.models.index_builder.faiss import (
 from unittest.mock import Mock
 import gc
 
+from remote_vector_index_builder.core.common.models.index_build_parameters import (
+    DataType,
+)
+
 
 class TestFaissGPUIndexCagraBuilder:
 
@@ -44,8 +48,25 @@ class TestFaissGPUIndexCagraBuilder:
         return params
 
     @pytest.fixture
+    def custom_params_for_binary(self):
+        params = {
+            "intermediate_graph_degree": 128,
+            "graph_degree": 64,
+            "store_dataset": True,
+            "refine_rate": 3.0,
+            "graph_build_algo": CagraGraphBuildAlgo.NN_DESCENT,
+        }
+        return params
+
+    @pytest.fixture
     def custom_builder(self, custom_params):
         builder = FaissGPUIndexCagraBuilder.from_dict(custom_params)
+        builder.device = 1  # Set device after initialization
+        return builder
+
+    @pytest.fixture
+    def custom_builder_for_binary(self, custom_params_for_binary):
+        builder = FaissGPUIndexCagraBuilder.from_dict(custom_params_for_binary)
         builder.device = 1  # Set device after initialization
         return builder
 
@@ -71,7 +92,7 @@ class TestFaissGPUIndexCagraBuilder:
         assert algo == faiss.graph_build_algo_IVF_PQ
 
     @pytest.mark.parametrize(
-        "params,error_msg",
+        "params, error_msg",
         [
             (
                 {"intermediate_graph_degree": 0},
@@ -108,8 +129,18 @@ class TestFaissGPUIndexCagraBuilder:
             assert config.ivf_pq_params is not None
             assert config.ivf_pq_search_params is not None
 
-    def test_from_dict_custom(self, custom_params):
+    def test_to_faiss_config_for_binary(self, custom_builder_for_binary):
+        config = custom_builder_for_binary.to_faiss_config()
 
+        assert isinstance(config, faiss.GpuIndexCagraConfig)
+        assert config.intermediate_graph_degree == 128
+        assert config.graph_degree == 64
+        assert config.store_dataset is True
+        assert config.device == 1
+        assert config.refine_rate == 3.0
+        assert config.build_algo == faiss.graph_build_algo_NN_DESCENT
+
+    def test_from_dict_custom(self, custom_params):
         builder = FaissGPUIndexCagraBuilder.from_dict(custom_params)
         assert isinstance(builder, FaissGPUIndexCagraBuilder)
 
@@ -131,7 +162,20 @@ class TestFaissGPUIndexCagraBuilder:
             == custom_params["ivf_pq_search_params"]["n_probes"]
         )
 
-    def test_build_gpu_index_success(self, default_builder, vectors_dataset):
+    def test_from_dict_custom_for_binary(self, custom_params_for_binary):
+        builder = FaissGPUIndexCagraBuilder.from_dict(custom_params_for_binary)
+        assert isinstance(builder, FaissGPUIndexCagraBuilder)
+
+        assert (
+            builder.intermediate_graph_degree
+            == custom_params_for_binary["intermediate_graph_degree"]
+        )
+        assert builder.graph_degree == custom_params_for_binary["graph_degree"]
+        assert builder.store_dataset == custom_params_for_binary["store_dataset"]
+        assert builder.refine_rate == custom_params_for_binary["refine_rate"]
+        assert builder.graph_build_algo == custom_params_for_binary["graph_build_algo"]
+
+    def _do_test_build_gpu_index_success(self, default_builder, vectors_dataset):
         """Test successful GPU index building"""
         # Configure mock returns
 
@@ -147,17 +191,95 @@ class TestFaissGPUIndexCagraBuilder:
         assert not result.index_id_map.is_deleted
         assert not result.gpu_index.is_deleted
 
+    def test_build_gpu_index_success(self, default_builder, vectors_dataset):
+        self._do_test_build_gpu_index_success(default_builder, vectors_dataset)
+
+    def test_build_gpu_byte_index_success(self, default_builder, byte_vectors_dataset):
+        self._do_test_build_gpu_index_success(default_builder, byte_vectors_dataset)
+
+    def test_build_gpu_fp16_index_success(self, default_builder, fp16_vectors_dataset):
+        self._do_test_build_gpu_index_success(default_builder, fp16_vectors_dataset)
+
+    def test_build_gpu_binary_index_success(
+        self, default_builder, binary_vectors_dataset
+    ):
+        """Test successful GPU binary index building"""
+        # Configure mock returns
+
+        # Execute build
+        result = default_builder.build_gpu_index(
+            binary_vectors_dataset,
+            dataset_dimension=24,
+            space_type=SpaceType.INNERPRODUCT,
+        )
+
+        # Verify result
+        assert isinstance(result, FaissGpuBuildIndexOutput)
+        assert isinstance(result.gpu_index, faiss.GpuIndexBinaryCagra)
+        assert isinstance(result.index_id_map, faiss.IndexBinaryIDMap)
+        assert not result.index_id_map.is_deleted
+        assert not result.gpu_index.is_deleted
+
     def test_build_gpu_index_config_error(self, default_builder, vectors_dataset):
+        self._do_test_build_gpu_index_config_error(default_builder, vectors_dataset)
+
+    def test_build_gpu_byte_index_config_error(
+        self, default_builder, byte_vectors_dataset
+    ):
+        self._do_test_build_gpu_index_config_error(
+            default_builder, byte_vectors_dataset
+        )
+
+    def test_build_gpu_fp16_index_config_error(
+        self, default_builder, fp16_vectors_dataset
+    ):
+        self._do_test_build_gpu_index_config_error(
+            default_builder, fp16_vectors_dataset
+        )
+
+    def test_build_gpu_binary_index_config_error(
+        self, default_builder, binary_vectors_dataset
+    ):
+        self._do_test_build_gpu_index_config_error(
+            default_builder, binary_vectors_dataset
+        )
+
+    def _do_test_build_gpu_index_config_error(self, default_builder, vectors_dataset):
         default_builder.to_faiss_config = Mock(side_effect=Exception("Config error"))
+
+        dimension = 3
+        if vectors_dataset.dtype == DataType.BINARY:
+            dimension = 24
 
         with pytest.raises(Exception) as exc_info:
             default_builder.build_gpu_index(
-                vectors_dataset, dataset_dimension=3, space_type=SpaceType.L2
+                vectors_dataset, dataset_dimension=dimension, space_type=SpaceType.L2
             )
 
         assert "Failed to create faiss GPU index config" in str(exc_info.value)
 
     def test_build_gpu_index_cleanup_on_error(
+        self, default_builder, vectors_dataset, deletion_tracker
+    ):
+        self._do_test_build_gpu_index_cleanup_on_error(
+            default_builder, vectors_dataset, deletion_tracker
+        )
+
+    def test_build_gpu_byte_index_cleanup_on_error(
+        self, default_builder, byte_vectors_dataset, deletion_tracker
+    ):
+        self._do_test_build_gpu_index_cleanup_on_error(
+            default_builder, byte_vectors_dataset, deletion_tracker
+        )
+
+    def test_build_gpu_fp16_index_cleanup_on_error(
+        self, default_builder, fp16_vectors_dataset, deletion_tracker
+    ):
+        self._do_test_build_gpu_index_cleanup_on_error(
+            default_builder, fp16_vectors_dataset, deletion_tracker
+        )
+
+    def _do_test_build_gpu_index_cleanup_on_error(
         self, default_builder, vectors_dataset, deletion_tracker
     ):
         """Test cleanup when error occurs during index building"""
@@ -186,12 +308,75 @@ class TestFaissGPUIndexCagraBuilder:
             # Restore original IndexIDMap
             faiss.IndexIDMap = original_index_id_map
 
+    def test_build_gpu_binary_index_cleanup_on_error(
+        self, default_builder, binary_vectors_dataset, deletion_tracker
+    ):
+        """Test cleanup when error occurs during index building"""
+        # Create GPU index that will be cleaned up
+        gpu_index = faiss.GpuIndexCagra()
+        gpu_index_id = gpu_index.id
+        original_index_id_map = faiss.IndexBinaryIDMap
+
+        try:
+            # Make IndexIDMap raise an error
+            faiss.IndexBinaryIDMap = Mock(side_effect=Exception("Index error"))
+
+            with pytest.raises(Exception):
+                default_builder.build_gpu_index(
+                    binary_vectors_dataset,
+                    dataset_dimension=24,
+                    space_type=SpaceType.L2,
+                )
+
+            # Force garbage collection to ensure __del__ is called
+            gpu_index = None
+            gc.collect()
+
+            # Verify GPU index was cleaned up
+            assert deletion_tracker.is_deleted(gpu_index_id)
+
+        finally:
+            # Restore original IndexIDMap
+            faiss.IndexBinaryIDMap = original_index_id_map
+
     def test_build_gpu_index_resource_cleanup(
         self, default_builder, vectors_dataset, deletion_tracker
     ):
+        self._do_test_build_gpu_index_resource_cleanup(
+            default_builder, vectors_dataset, deletion_tracker
+        )
+
+    def test_build_gpu_byte_index_resource_cleanup(
+        self, default_builder, byte_vectors_dataset, deletion_tracker
+    ):
+        self._do_test_build_gpu_index_resource_cleanup(
+            default_builder, byte_vectors_dataset, deletion_tracker
+        )
+
+    def test_build_gpu_fp16_index_resource_cleanup(
+        self, default_builder, fp16_vectors_dataset, deletion_tracker
+    ):
+        self._do_test_build_gpu_index_resource_cleanup(
+            default_builder, fp16_vectors_dataset, deletion_tracker
+        )
+
+    def test_build_gpu_binary_index_resource_cleanup(
+        self, default_builder, binary_vectors_dataset, deletion_tracker
+    ):
+        self._do_test_build_gpu_index_resource_cleanup(
+            default_builder, binary_vectors_dataset, deletion_tracker
+        )
+
+    def _do_test_build_gpu_index_resource_cleanup(
+        self, default_builder, vectors_dataset, deletion_tracker
+    ):
+        dimension = 3
+        if vectors_dataset.dtype == DataType.BINARY:
+            dimension = 24
+
         """Test resource cleanup during normal operation"""
         result = default_builder.build_gpu_index(
-            vectors_dataset, dataset_dimension=3, space_type=SpaceType.L2
+            vectors_dataset, dataset_dimension=dimension, space_type=SpaceType.L2
         )
 
         # Store IDs before cleanup

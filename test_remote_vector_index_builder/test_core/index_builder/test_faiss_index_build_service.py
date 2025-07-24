@@ -25,6 +25,34 @@ class TestFaissIndexBuildService:
     def test_build_index_success(
         self, service, vectors_dataset, index_build_parameters, tmp_path
     ):
+        self._do_test_build_index_success(
+            service, vectors_dataset, index_build_parameters, tmp_path
+        )
+
+    def test_build_byte_index_success(
+        self, service, byte_vectors_dataset, byte_index_build_parameters, tmp_path
+    ):
+        self._do_test_build_index_success(
+            service, byte_vectors_dataset, byte_index_build_parameters, tmp_path
+        )
+
+    def test_build_fp16_index_success(
+        self, service, fp16_vectors_dataset, byte_index_build_parameters, tmp_path
+    ):
+        self._do_test_build_index_success(
+            service, fp16_vectors_dataset, byte_index_build_parameters, tmp_path
+        )
+
+    def test_build_binary_index_success(
+        self, service, binary_vectors_dataset, binary_index_build_parameters, tmp_path
+    ):
+        self._do_test_build_index_success(
+            service, binary_vectors_dataset, binary_index_build_parameters, tmp_path
+        )
+
+    def _do_test_build_index_success(
+        self, service, vectors_dataset, index_build_parameters, tmp_path
+    ):
         output_path = str(tmp_path / "output.index")
         service.build_index(index_build_parameters, vectors_dataset, output_path)
 
@@ -35,11 +63,39 @@ class TestFaissIndexBuildService:
     def test_build_index_gpu_creation_error(
         self, service, vectors_dataset, index_build_parameters, tmp_path
     ):
+        self._do_test_build_index_gpu_creation_error(
+            service, vectors_dataset, index_build_parameters, tmp_path
+        )
+
+    def test_build_byte_index_gpu_creation_error(
+        self, service, byte_vectors_dataset, byte_index_build_parameters, tmp_path
+    ):
+        self._do_test_build_index_gpu_creation_error(
+            service, byte_vectors_dataset, byte_index_build_parameters, tmp_path
+        )
+
+    def test_build_fp16_index_gpu_creation_error(
+        self, service, fp16_vectors_dataset, byte_index_build_parameters, tmp_path
+    ):
+        self._do_test_build_index_gpu_creation_error(
+            service, fp16_vectors_dataset, byte_index_build_parameters, tmp_path
+        )
+
+    def test_build_binary_index_gpu_creation_error(
+        self, service, binary_vectors_dataset, binary_index_build_parameters, tmp_path
+    ):
+        pass
+        self._do_test_build_index_gpu_creation_error(
+            service, binary_vectors_dataset, binary_index_build_parameters, tmp_path
+        )
+
+    def _do_test_build_index_gpu_creation_error(
+        self, service, vectors_dataset, index_build_parameters, tmp_path
+    ):
         with patch(
             "core.common.models.index_builder.faiss.FaissGPUIndexCagraBuilder.build_gpu_index",
             side_effect=Exception("GPU creation failed"),
         ):
-
             with pytest.raises(Exception) as exc_info:
                 service.build_index(
                     index_build_parameters,
@@ -52,11 +108,38 @@ class TestFaissIndexBuildService:
     def test_build_index_cpu_conversion_error(
         self, service, vectors_dataset, index_build_parameters, tmp_path
     ):
+        self._do_test_build_index_cpu_conversion_error(
+            service, vectors_dataset, index_build_parameters, tmp_path
+        )
+
+    def test_build_byte_index_cpu_conversion_error(
+        self, service, byte_vectors_dataset, byte_index_build_parameters, tmp_path
+    ):
+        self._do_test_build_index_cpu_conversion_error(
+            service, byte_vectors_dataset, byte_index_build_parameters, tmp_path
+        )
+
+    def test_build_fp16_index_cpu_conversion_error(
+        self, service, fp16_vectors_dataset, byte_index_build_parameters, tmp_path
+    ):
+        self._do_test_build_index_cpu_conversion_error(
+            service, fp16_vectors_dataset, byte_index_build_parameters, tmp_path
+        )
+
+    def test_build_binary_index_cpu_conversion_error(
+        self, service, binary_vectors_dataset, binary_index_build_parameters, tmp_path
+    ):
+        self._do_test_build_index_cpu_conversion_error(
+            service, binary_vectors_dataset, binary_index_build_parameters, tmp_path
+        )
+
+    def _do_test_build_index_cpu_conversion_error(
+        self, service, vectors_dataset, index_build_parameters, tmp_path
+    ):
         with patch(
             "core.common.models.index_builder.faiss.FaissIndexHNSWCagraBuilder.convert_gpu_to_cpu_index",
             side_effect=Exception("Conversion failed"),
         ):
-
             with pytest.raises(Exception) as exc_info:
                 service.build_index(
                     index_build_parameters,
@@ -69,12 +152,39 @@ class TestFaissIndexBuildService:
     def test_build_index_write_error(
         self, service, vectors_dataset, index_build_parameters, tmp_path
     ):
+        self._do_test_build_index_write_error(
+            service, vectors_dataset, index_build_parameters, tmp_path
+        )
+
+    def test_build_byte_index_write_error(
+        self, service, byte_vectors_dataset, byte_index_build_parameters, tmp_path
+    ):
+        self._do_test_build_index_write_error(
+            service, byte_vectors_dataset, byte_index_build_parameters, tmp_path
+        )
+
+    def test_build_fp16_index_write_error(
+        self, service, fp16_vectors_dataset, byte_index_build_parameters, tmp_path
+    ):
+        self._do_test_build_index_write_error(
+            service, fp16_vectors_dataset, byte_index_build_parameters, tmp_path
+        )
+
+    def test_build_binary_index_write_error(
+        self, service, binary_vectors_dataset, binary_index_build_parameters, tmp_path
+    ):
+        self._do_test_build_index_write_error(
+            service, binary_vectors_dataset, binary_index_build_parameters, tmp_path
+        )
+
+    def _do_test_build_index_write_error(
+        self, service, vectors_dataset, index_build_parameters, tmp_path
+    ):
         """Test error handling during index writing"""
         with patch(
             "core.common.models.index_builder.faiss.FaissIndexHNSWCagraBuilder.write_cpu_index",
             side_effect=Exception("Write failed"),
         ):
-
             with pytest.raises(Exception) as exc_info:
                 service.build_index(
                     index_build_parameters,

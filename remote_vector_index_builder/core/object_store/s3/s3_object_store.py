@@ -11,7 +11,6 @@ import os
 import sys
 import threading
 from functools import cache
-from io import BytesIO
 from typing import Any, Dict
 
 import boto3
@@ -213,13 +212,13 @@ class S3ObjectStore(ObjectStore):
 
         return config_params
 
-    def read_blob(self, remote_store_path: str, bytes_buffer: BytesIO) -> None:
+    def read_blob(self, remote_store_path: str, bytes_buffer) -> None:
         """
         Downloads a blob from S3 to the provided bytes buffer, with retry logic.
 
         Args:
             remote_store_path (str): The S3 key (path) of the object to download
-            bytes_buffer (BytesIO): A bytes buffer to store the downloaded data
+            bytes_buffer: A bytes buffer to store the downloaded data
 
         Returns:
             None
