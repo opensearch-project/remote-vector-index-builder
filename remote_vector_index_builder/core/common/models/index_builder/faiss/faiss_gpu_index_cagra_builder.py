@@ -179,26 +179,30 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
     def _determine_faiss_numeric_type(dtype: DataType):
         if dtype == DataType.FLOAT:
             return faiss.Float32
+        elif dtype == DataType.FLOAT16:
+            return faiss.Float16
         elif dtype == DataType.BYTE or dtype == DataType.BINARY:
             return faiss.Int8
         raise ValueError(f"Unsupported data type: {dtype}")
 
     @staticmethod
     def _determine_gpu_index(
-        dtype, res, dataset_dimension, metric, faiss_gpu_index_config
+        dtype, res, dataset_dimension, space_type, faiss_gpu_index_config
     ):
-        if dtype == DataType.FLOAT or dtype == DataType.BYTE:
+        if dtype != DataType.BINARY:
+            # Configure the distance metric
+            metric = configure_metric(space_type)
+
             return faiss.GpuIndexCagra(
                 res,
                 dataset_dimension,
                 metric,
                 faiss_gpu_index_config,
             )
-        elif dtype == DataType.BINARY:
+        else:
             return faiss.GpuIndexBinaryCagra(
                 res, dataset_dimension, faiss_gpu_index_config
             )
-        raise ValueError(f"Unsupported data type: {dtype}")
 
     @staticmethod
     def _do_build(vectors_dataset, faiss_gpu_index):
@@ -247,9 +251,6 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
             raise Exception(f"Failed to create faiss GPU index config: {str(e)}") from e
 
         try:
-            # Configure the distance metric
-            metric = configure_metric(space_type)
-
             res = faiss.StandardGpuResources()
             res.noTempMemory()
             # Create GPU CAGRA index with specified configuration
@@ -257,7 +258,7 @@ class FaissGPUIndexCagraBuilder(FaissGPUIndexBuilder):
                 vectors_dataset.dtype,
                 res,
                 dataset_dimension,
-                metric,
+                space_type,
                 faiss_gpu_index_config,
             )
 

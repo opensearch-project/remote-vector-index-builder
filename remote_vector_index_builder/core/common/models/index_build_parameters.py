@@ -22,6 +22,7 @@ class DataType(str, Enum):
     """
 
     FLOAT = "float"
+    FLOAT16 = "half_float"
     BYTE = "byte"
     BINARY = "binary"
 
@@ -33,6 +34,8 @@ class DataType(str, Enum):
         """
         if self == DataType.FLOAT:
             return 4
+        elif self == DataType.FLOAT16:
+            return 2
         elif self == DataType.BYTE:
             return 1
         elif self == DataType.BINARY:
@@ -51,6 +54,7 @@ class SpaceType(str, Enum):
 
     L2 = "l2"
     INNERPRODUCT = "innerproduct"
+    HAMMING = "hamming"
 
 
 class Algorithm(str, Enum):

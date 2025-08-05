@@ -226,6 +226,7 @@ class FaissMock(ModuleType):
         self.GpuIndexCagraConfig = MockGpuIndexCagraConfig
         self.IndexBinaryHNSW = MockIndexBinaryHNSW
         self.Float32 = Mock()
+        self.Float16 = Mock()
         self.Int8 = Mock()
 
         # Enums
@@ -340,6 +341,21 @@ def sample_byte_vectors():
 
 
 @pytest.fixture
+def sample_fp16_vectors():
+    """Generate sample fp16 vectors for testing"""
+    return np.array(
+        [
+            [1.0, 2.0, 3.0],
+            [4.0, 5.0, 6.0],
+            [7.0, 8.0, 9.0],
+            [10.0, 11.0, 12.0],
+            [13.0, 14.0, 15.0],
+        ],
+        dtype=np.float16,
+    )
+
+
+@pytest.fixture
 def sample_doc_ids():
     """Generate sample document IDs for testing"""
     return np.array([1, 2, 3, 4, 5], dtype=np.int32)
@@ -354,16 +370,24 @@ def vectors_dataset(sample_vectors, sample_doc_ids):
 
 
 @pytest.fixture
-def byte_vectors_dataset(sample_vectors, sample_doc_ids):
+def byte_vectors_dataset(sample_byte_vectors, sample_doc_ids):
     """Create a VectorsDataset instance for testing"""
     return VectorsDataset(
-        vectors=sample_vectors, doc_ids=sample_doc_ids, dtype=DataType.BYTE
+        vectors=sample_byte_vectors, doc_ids=sample_doc_ids, dtype=DataType.BYTE
     )
 
 
 @pytest.fixture
-def binary_vectors_dataset(sample_vectors, sample_doc_ids):
+def binary_vectors_dataset(sample_binary_vectors, sample_doc_ids):
     """Create a VectorsDataset instance for testing"""
     return VectorsDataset(
-        vectors=sample_vectors, doc_ids=sample_doc_ids, dtype=DataType.BINARY
+        vectors=sample_binary_vectors, doc_ids=sample_doc_ids, dtype=DataType.BINARY
+    )
+
+
+@pytest.fixture
+def fp16_vectors_dataset(sample_fp16_vectors, sample_doc_ids):
+    """Create a VectorsDataset instance for testing"""
+    return VectorsDataset(
+        vectors=sample_fp16_vectors, doc_ids=sample_doc_ids, dtype=DataType.FLOAT16
     )

@@ -58,6 +58,8 @@ class VectorsDataset:
         """
         if dtype == DataType.FLOAT:
             return "<f4"
+        if dtype == DataType.FLOAT16:
+            return "<f2"
         if dtype == DataType.BYTE:
             return "<i1"
         if dtype == DataType.BINARY:
@@ -83,7 +85,7 @@ class VectorsDataset:
 
     @staticmethod
     def parse(
-        vectors: BytesIO,
+        vectors,
         doc_ids: BytesIO,
         dimension: int,
         doc_count: int,
@@ -95,7 +97,7 @@ class VectorsDataset:
         dimensions, and creates a new VectorsDataset instance.
 
         Args:
-            vectors (BytesIO): Binary stream containing vector data.
+            vectors (BytesIO like object): Binary stream containing vector data.
             doc_ids (BytesIO): Binary stream containing document IDs.
             dimension (int): The dimensionality of each vector.
             doc_count (int): Expected number of vectors/documents.

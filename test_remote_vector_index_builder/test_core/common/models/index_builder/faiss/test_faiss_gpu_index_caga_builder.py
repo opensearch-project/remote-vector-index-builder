@@ -197,6 +197,9 @@ class TestFaissGPUIndexCagraBuilder:
     def test_build_gpu_byte_index_success(self, default_builder, byte_vectors_dataset):
         self._do_test_build_gpu_index_success(default_builder, byte_vectors_dataset)
 
+    def test_build_gpu_fp16_index_success(self, default_builder, fp16_vectors_dataset):
+        self._do_test_build_gpu_index_success(default_builder, fp16_vectors_dataset)
+
     def test_build_gpu_binary_index_success(
         self, default_builder, binary_vectors_dataset
     ):
@@ -225,6 +228,13 @@ class TestFaissGPUIndexCagraBuilder:
     ):
         self._do_test_build_gpu_index_config_error(
             default_builder, byte_vectors_dataset
+        )
+
+    def test_build_gpu_fp16_index_config_error(
+        self, default_builder, fp16_vectors_dataset
+    ):
+        self._do_test_build_gpu_index_config_error(
+            default_builder, fp16_vectors_dataset
         )
 
     def test_build_gpu_binary_index_config_error(
@@ -260,6 +270,13 @@ class TestFaissGPUIndexCagraBuilder:
     ):
         self._do_test_build_gpu_index_cleanup_on_error(
             default_builder, byte_vectors_dataset, deletion_tracker
+        )
+
+    def test_build_gpu_fp16_index_cleanup_on_error(
+        self, default_builder, fp16_vectors_dataset, deletion_tracker
+    ):
+        self._do_test_build_gpu_index_cleanup_on_error(
+            default_builder, fp16_vectors_dataset, deletion_tracker
         )
 
     def _do_test_build_gpu_index_cleanup_on_error(
@@ -334,6 +351,13 @@ class TestFaissGPUIndexCagraBuilder:
     ):
         self._do_test_build_gpu_index_resource_cleanup(
             default_builder, byte_vectors_dataset, deletion_tracker
+        )
+
+    def test_build_gpu_fp16_index_resource_cleanup(
+        self, default_builder, fp16_vectors_dataset, deletion_tracker
+    ):
+        self._do_test_build_gpu_index_resource_cleanup(
+            default_builder, fp16_vectors_dataset, deletion_tracker
         )
 
     def test_build_gpu_binary_index_resource_cleanup(

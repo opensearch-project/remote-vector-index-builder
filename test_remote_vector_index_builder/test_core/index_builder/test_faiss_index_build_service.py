@@ -36,6 +36,13 @@ class TestFaissIndexBuildService:
             service, byte_vectors_dataset, byte_index_build_parameters, tmp_path
         )
 
+    def test_build_fp16_index_success(
+        self, service, fp16_vectors_dataset, byte_index_build_parameters, tmp_path
+    ):
+        self._do_test_build_index_success(
+            service, fp16_vectors_dataset, byte_index_build_parameters, tmp_path
+        )
+
     def test_build_binary_index_success(
         self, service, binary_vectors_dataset, binary_index_build_parameters, tmp_path
     ):
@@ -65,6 +72,13 @@ class TestFaissIndexBuildService:
     ):
         self._do_test_build_index_gpu_creation_error(
             service, byte_vectors_dataset, byte_index_build_parameters, tmp_path
+        )
+
+    def test_build_fp16_index_gpu_creation_error(
+        self, service, fp16_vectors_dataset, byte_index_build_parameters, tmp_path
+    ):
+        self._do_test_build_index_gpu_creation_error(
+            service, fp16_vectors_dataset, byte_index_build_parameters, tmp_path
         )
 
     def test_build_binary_index_gpu_creation_error(
@@ -105,6 +119,13 @@ class TestFaissIndexBuildService:
             service, byte_vectors_dataset, byte_index_build_parameters, tmp_path
         )
 
+    def test_build_fp16_index_cpu_conversion_error(
+        self, service, fp16_vectors_dataset, byte_index_build_parameters, tmp_path
+    ):
+        self._do_test_build_index_cpu_conversion_error(
+            service, fp16_vectors_dataset, byte_index_build_parameters, tmp_path
+        )
+
     def test_build_binary_index_cpu_conversion_error(
         self, service, binary_vectors_dataset, binary_index_build_parameters, tmp_path
     ):
@@ -140,6 +161,13 @@ class TestFaissIndexBuildService:
     ):
         self._do_test_build_index_write_error(
             service, byte_vectors_dataset, byte_index_build_parameters, tmp_path
+        )
+
+    def test_build_fp16_index_write_error(
+        self, service, fp16_vectors_dataset, byte_index_build_parameters, tmp_path
+    ):
+        self._do_test_build_index_write_error(
+            service, fp16_vectors_dataset, byte_index_build_parameters, tmp_path
         )
 
     def test_build_binary_index_write_error(
