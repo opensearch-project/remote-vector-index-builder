@@ -77,7 +77,11 @@ class FaissIndexBuildService(IndexBuildService):
                             index_build_parameters.dimension
                             / self.PQ_DIM_COMPRESSION_FACTOR
                         ),
-                    }
+                    },
+                    "graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
+                    * 2,
+                    "intermediate_graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
+                    * 4,
                 }
             else:
                 gpu_index_config_params = {

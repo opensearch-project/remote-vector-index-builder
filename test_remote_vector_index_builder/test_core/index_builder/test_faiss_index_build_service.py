@@ -10,7 +10,11 @@ import pytest
 from unittest.mock import patch
 import os
 
+from core.common.models.index_build_parameters import DataType
+from core.common.models.index_builder import CagraGraphBuildAlgo
+from core.common.models.index_builder.faiss import FaissGPUIndexCagraBuilder
 from core.index_builder.faiss.faiss_index_build_service import FaissIndexBuildService
+from core.index_builder.index_builder_utils import calculate_ivf_pq_n_lists
 
 
 class TestFaissIndexBuildService:
@@ -53,12 +57,43 @@ class TestFaissIndexBuildService:
     def _do_test_build_index_success(
         self, service, vectors_dataset, index_build_parameters, tmp_path
     ):
-        output_path = str(tmp_path / "output.index")
-        service.build_index(index_build_parameters, vectors_dataset, output_path)
+        with patch(
+            "core.common.models.index_builder.faiss.FaissGPUIndexCagraBuilder.from_dict"
+        ) as mock_gpu_from_dict:
 
-        # Verify OMP threads were set correctly
-        assert faiss.omp_get_num_threads() == 2  # 8 CPUs/4 = 2 threads
-        assert os.path.exists(output_path)
+            output_path = str(tmp_path / "output.index")
+            mock_gpu_from_dict.return_value = FaissGPUIndexCagraBuilder()
+
+            service.build_index(index_build_parameters, vectors_dataset, output_path)
+
+            # Ensuring that FaissGPUIndexCagraBuilder parameters are set correctly
+            expected_params = self._get_expected_gpu_params(
+                service, index_build_parameters
+            )
+            mock_gpu_from_dict.assert_called_once_with(expected_params)
+
+            assert faiss.omp_get_num_threads() == 2  # 8 CPUs/4 = 2 threads
+            assert os.path.exists(output_path)
+
+    def _get_expected_gpu_params(self, service, index_build_parameters):
+        if index_build_parameters.data_type != DataType.BINARY:
+            return {
+                "ivf_pq_params": {
+                    "n_lists": calculate_ivf_pq_n_lists(
+                        index_build_parameters.doc_count
+                    ),
+                    "pq_dim": int(
+                        index_build_parameters.dimension
+                        / service.PQ_DIM_COMPRESSION_FACTOR
+                    ),
+                },
+                "graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
+                * 2,
+                "intermediate_graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
+                * 4,
+            }
+        else:
+            return {"graph_build_algo": CagraGraphBuildAlgo.NN_DESCENT}
 
     def test_build_index_gpu_creation_error(
         self, service, vectors_dataset, index_build_parameters, tmp_path
