@@ -85,7 +85,11 @@ class FaissIndexBuildService(IndexBuildService):
                 }
             else:
                 gpu_index_config_params = {
-                    "graph_build_algo": CagraGraphBuildAlgo.NN_DESCENT
+                    "graph_build_algo": CagraGraphBuildAlgo.NN_DESCENT,
+                    "graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
+                    * 2,
+                    "intermediate_graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
+                    * 4,
                 }
 
             faiss_gpu_index_cagra_builder = FaissGPUIndexCagraBuilder.from_dict(
