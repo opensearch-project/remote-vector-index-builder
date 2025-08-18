@@ -93,7 +93,8 @@ There are 3 images vended by this repository:
   - Uses `faiss-base` as a base image
   - Adds the code for the core index build functionalities: building an index and remote store I/O
 - `api`
-  - Uses `core` as a base image
+  - Uses `faiss-base` as a base image
+  - Adds the code for the core index build functionalities
   - Adds the code for a `fastAPI` server with `_build` and `_status` APIs
     - The `_build` API triggers an index build workflow and returns a job id to the caller 
     - The `_status` API gets the status of the workflow, given a job id
@@ -114,7 +115,7 @@ Please see the section [Provisioning an instance for development](#provisioning-
 
 Run the below command to create the `faiss-base` image:
 ```
-docker build  -f ./base_image/build_scripts/Dockerfile . -t opensearchstaging/remote-vector-index-builder:faiss-base-latest
+docker build  -f ./base_image/build_scripts/Dockerfile . -t opensearchstaging/remote-vector-index-builder:faiss-base-snapshot
 ```
 
 ### Core Image
@@ -122,7 +123,7 @@ The path [`/remote-vector-index-builder/core`](/remote_vector_index_builder/core
 Run the below command to create the `core` image:
 
 ```
-docker build  -f ./remote_vector_index_builder/core/Dockerfile . -t opensearchstaging/remote-vector-index-builder:core-latest
+docker build  -f ./remote_vector_index_builder/core/Dockerfile . -t opensearchstaging/remote-vector-index-builder:core-snapshot
 ```
 
 The image can be built on any type of machine with `docker` installed
@@ -132,7 +133,7 @@ The path [`/remote-vector-index-builder/app`](/remote_vector_index_builder/app/)
 Run the below command to create `api` image. 
 
 ```
-docker build  -f ./remote_vector_index_builder/app/Dockerfile . -t opensearchstaging/remote-vector-index-builder:api-latest
+docker build  -f ./remote_vector_index_builder/app/Dockerfile . -t opensearchstaging/remote-vector-index-builder:api-snapshot
 ```
 
 The image can be built on any type of machine with `docker` installed
@@ -171,13 +172,13 @@ Follow the steps below to use run the API image locally. Note that s3 is current
     ```
     cd remote-vector-index-builder
     ```
-6. Build the docker image. Note that any image tag can be used, not just `opensearchstaging/remote-vector-index-builder:api-latest`: 
+6. Build the docker image. Note that any image tag can be used, not just `opensearchstaging/remote-vector-index-builder:api-snapshot`: 
     ```
-    docker build  -f ./remote_vector_index_builder/app/Dockerfile . -t opensearchstaging/remote-vector-index-builder:api-latest
+    docker build  -f ./remote_vector_index_builder/app/Dockerfile . -t opensearchstaging/remote-vector-index-builder:api-snapshot
     ```
 7. Run the docker image: 
     ```
-    docker run --gpus all -p 80:1025 opensearchstaging/remote-vector-index-builder:api-latest
+    docker run -e AWS_DEFAULT_REGION=<s3_bucket_region> --gpus all -p 80:1025 opensearchstaging/remote-vector-index-builder:api-snapshot
     ```
 8. In a separate terminal, issue a build request:
     ```
