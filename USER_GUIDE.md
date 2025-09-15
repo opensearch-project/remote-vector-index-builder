@@ -10,7 +10,7 @@ System requirements:
 ## Pull Docker Image
 Once your GPU instance is created, pull the Remote Vector Index Builder Docker image:
 ```bash
-docker pull opensearchstaging/remote-vector-index-builder:api-latest
+docker pull opensearchstaging/remote-vector-index-builder:api-snapshot
 ```
 
 ## Running the Service
@@ -23,7 +23,7 @@ Additionally, the EC2 instance should be configured to allow inbound traffic fro
 
 ### Starting the Docker Container
 ```bash
-docker run --gpus all -p 80:1025 opensearchstaging/remote-vector-index-builder:api-latest
+docker run -e AWS_DEFAULT_REGION=<s3_bucket_region> --gpus all -p 80:1025 opensearchstaging/remote-vector-index-builder:api-snapshot
 ```
 If another Docker process is already running on this port, you may get an error that port 80 is already in use. To fix this, you can either kill the existing process on the port or use a different port.
 
