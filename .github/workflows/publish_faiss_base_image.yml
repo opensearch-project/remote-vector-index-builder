@@ -25,9 +25,11 @@ jobs:
         uses: actions/checkout@v4
         with:
             submodules: 'recursive'
+            path: 'rvib'
 
       - name: Build Docker Image
         run : |
+            cd rvib
             docker build  -f ./base_image/build_scripts/Dockerfile . -t opensearchstaging/remote-vector-index-builder:faiss-base-snapshot
       
       - name: Configure AWS Credentials
@@ -56,8 +58,11 @@ jobs:
       - name: Runner Cleanups
         if: always()
         run: |
+          # Docker cleanup
           docker logout
           docker system prune -a -f
+          
+          # Workspace cleanup
           rm -rf ${{ github.workspace }}/*
   
   # Trigger build of core image since base image is changed

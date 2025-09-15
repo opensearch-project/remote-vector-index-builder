@@ -213,6 +213,24 @@ def build_index(
     )
 
 
+def _determine_streaming_buffer(
+    index_build_params: IndexBuildParameters, vector_bytes_buffer
+):
+    from remote_vector_index_builder.core.common.models.index_build_parameters import (
+        DataType,
+    )
+    from remote_vector_index_builder.core.fp32_to_fp16_converting_bytes_io import (
+        FP32ToFP16ConvertingBytesIO,
+    )
+
+    if index_build_params.data_type == DataType.FLOAT16:
+        return FP32ToFP16ConvertingBytesIO(
+            index_build_params.doc_count * index_build_params.dimension
+        )
+
+    return vector_bytes_buffer
+
+
 def create_vectors_dataset(
     index_build_params: IndexBuildParameters,
     object_store: ObjectStore,
@@ -259,6 +277,9 @@ def create_vectors_dataset(
         UnsupportedObjectStoreTypeError: If the index_build_params.repository_type is not supported
 
     """
+    vector_bytes_buffer = _determine_streaming_buffer(
+        index_build_params, vector_bytes_buffer
+    )
     object_store.read_blob(index_build_params.vector_path, vector_bytes_buffer)
     object_store.read_blob(index_build_params.doc_id_path, doc_id_bytes_buffer)
 

@@ -19,6 +19,8 @@ from core.index_builder.index_builder_utils import (
     calculate_ivf_pq_n_lists,
     get_omp_num_threads,
 )
+from core.common.models.index_build_parameters import DataType
+from core.common.models.index_builder import CagraGraphBuildAlgo
 from core.index_builder.interface import IndexBuildService
 from timeit import default_timer as timer
 
@@ -65,17 +67,31 @@ class FaissIndexBuildService(IndexBuildService):
 
             # Step 1a: Create a structured GPUIndexConfig having defaults,
             # from a partial dictionary set from index build params
-            gpu_index_config_params = {
-                "ivf_pq_params": {
-                    "n_lists": calculate_ivf_pq_n_lists(
-                        index_build_parameters.doc_count
-                    ),
-                    "pq_dim": int(
-                        index_build_parameters.dimension
-                        / self.PQ_DIM_COMPRESSION_FACTOR
-                    ),
+            if index_build_parameters.data_type != DataType.BINARY:
+                gpu_index_config_params = {
+                    "ivf_pq_params": {
+                        "n_lists": calculate_ivf_pq_n_lists(
+                            index_build_parameters.doc_count
+                        ),
+                        "pq_dim": int(
+                            index_build_parameters.dimension
+                            / self.PQ_DIM_COMPRESSION_FACTOR
+                        ),
+                    },
+                    "graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
+                    * 2,
+                    "intermediate_graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
+                    * 4,
                 }
-            }
+            else:
+                gpu_index_config_params = {
+                    "graph_build_algo": CagraGraphBuildAlgo.NN_DESCENT,
+                    "graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
+                    * 2,
+                    "intermediate_graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
+                    * 4,
+                }
+
             faiss_gpu_index_cagra_builder = FaissGPUIndexCagraBuilder.from_dict(
                 gpu_index_config_params
             )
@@ -101,6 +117,7 @@ class FaissIndexBuildService(IndexBuildService):
             cpu_index_config_params = {
                 "ef_search": index_build_parameters.index_parameters.algorithm_parameters.ef_search,
                 "ef_construction": index_build_parameters.index_parameters.algorithm_parameters.ef_construction,
+                "vector_dtype": index_build_parameters.data_type,
             }
             faiss_index_hnsw_cagra_builder = FaissIndexHNSWCagraBuilder.from_dict(
                 cpu_index_config_params

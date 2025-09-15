@@ -14,6 +14,10 @@ from core.common.models.index_builder import (
     FaissCPUIndexBuilder,
 )
 
+from remote_vector_index_builder.core.common.models.index_build_parameters import (
+    DataType,
+)
+
 
 @dataclass
 class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
@@ -31,6 +35,8 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
     # Doing so enables to search the HNSW index, but removes the
     # ability to add vectors.
     base_level_only: bool = True
+
+    vector_dtype: DataType = DataType.FLOAT
 
     @classmethod
     def from_dict(
@@ -50,24 +56,9 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
 
         return cls(**params)
 
-    def convert_gpu_to_cpu_index(
-        self,
-        faiss_gpu_build_index_output: FaissGpuBuildIndexOutput,
-    ) -> FaissCpuBuildIndexOutput:
-        """
-        Method to convert a GPU Vector Search Index to CPU Index
-        Returns a CPU read compatible vector search index
-        Uses faiss specific library methods to achieve this.
-
-        Args:
-        faiss_gpu_build_index_output (FaissGpuBuildIndexOutput) A datamodel containing the GPU Faiss Index
-        and dataset Vector Ids components
-
-        Returns:
-        FaissCpuBuildIndexOutput: A datamodel containing the created CPU Faiss Index
-        and dataset Vector Ids components
-        """
-        cpu_index = None
+    def _do_convert_gpu_to_cpu_index(
+        self, faiss_gpu_build_index_output: FaissGpuBuildIndexOutput
+    ):
         try:
             # Initialize CPU Index
             cpu_index = faiss.IndexHNSWCagra()
@@ -102,6 +93,63 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
                 f"Failed to convert GPU index to CPU index: {str(e)}"
             ) from e
 
+    def _do_convert_gpu_to_cpu_binary_index(
+        self, faiss_gpu_build_index_output: FaissGpuBuildIndexOutput
+    ):
+        try:
+            # Convert GPU binary index to CPU binary index
+            cpu_index = faiss.IndexBinaryHNSWCagra()
+            cpu_index.hnsw.efConstruction = self.ef_construction
+            cpu_index.hnsw.efSearch = self.ef_search
+            cpu_index.base_level_only = self.base_level_only
+
+            # Convert GPU binary index to CPU binary index
+            faiss_gpu_build_index_output.gpu_index.copyTo(cpu_index)
+
+            # Remove reference of GPU Index from the IndexBinaryIDMap
+            faiss_gpu_build_index_output.index_id_map.index = None
+
+            # Update the ID map index with the CPU index
+            index_id_map = faiss_gpu_build_index_output.index_id_map
+
+            # Remove reference of the IndexBinaryIDMap from the GPU Build Index Output before cleanup
+            faiss_gpu_build_index_output.index_id_map = None
+
+            index_id_map.index = cpu_index
+
+            # Free memory taken by GPU Index
+            faiss_gpu_build_index_output.cleanup()
+
+            return FaissCpuBuildIndexOutput(
+                cpu_index=cpu_index, index_id_map=index_id_map
+            )
+        except Exception as e:
+            raise Exception(
+                f"Failed to convert GPU index to CPU index: {str(e)}"
+            ) from e
+
+    def convert_gpu_to_cpu_index(
+        self, faiss_gpu_build_index_output: FaissGpuBuildIndexOutput
+    ) -> FaissCpuBuildIndexOutput:
+        """
+        Method to convert a GPU Vector Search Index to CPU Index
+        Returns a CPU read compatible vector search index
+        Uses faiss specific library methods to achieve this.
+
+        Args:
+        faiss_gpu_build_index_output (FaissGpuBuildIndexOutput) A datamodel containing the GPU Faiss Index
+        and dataset Vector Ids components
+
+        Returns:
+        FaissCpuBuildIndexOutput: A datamodel containing the created CPU Faiss Index
+        and dataset Vector Ids components
+        """
+
+        if self.vector_dtype != DataType.BINARY:
+            return self._do_convert_gpu_to_cpu_index(faiss_gpu_build_index_output)
+
+        return self._do_convert_gpu_to_cpu_binary_index(faiss_gpu_build_index_output)
+
     def write_cpu_index(
         self,
         cpu_build_index_output: FaissCpuBuildIndexOutput,
@@ -121,9 +169,14 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
 
             # TODO: Investigate what issues may arise while writing index to local file
             # Write the final cpu index - vectors id mapping to disk
-            faiss.write_index(
-                cpu_build_index_output.index_id_map, cpu_index_output_file_path
-            )
+            if self.vector_dtype != DataType.BINARY:
+                faiss.write_index(
+                    cpu_build_index_output.index_id_map, cpu_index_output_file_path
+                )
+            else:
+                faiss.write_index_binary(
+                    cpu_build_index_output.index_id_map, cpu_index_output_file_path
+                )
             # Free memory taken by CPU Index
             cpu_build_index_output.cleanup()
         except IOError as io_error:

@@ -20,6 +20,7 @@ from core.tasks import (
 from core.common.exceptions import BlobError
 from core.common.models.vectors_dataset import VectorsDataset
 from core.object_store.object_store import ObjectStore
+from core.common.models.index_build_parameters import DataType
 
 
 @pytest.fixture
@@ -41,7 +42,12 @@ def mock_vectors_dataset_parse():
 
 @pytest.fixture
 def mock_vectors_dataset():
-    return Mock(spec=VectorsDataset, vectors=np.array([]), doc_ids=np.array([]))
+    return Mock(
+        spec=VectorsDataset,
+        vectors=np.array([]),
+        doc_ids=np.array([]),
+        dtype=DataType.FLOAT,
+    )
 
 
 def test_successful_creation(

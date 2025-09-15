@@ -28,6 +28,7 @@ class VectorsDataset:
 
     vectors: np.ndarray
     doc_ids: np.ndarray
+    dtype: DataType
 
     def free_vectors_space(self):
         """Free up memory by deleting the vectors and document IDs arrays."""
@@ -57,6 +58,12 @@ class VectorsDataset:
         """
         if dtype == DataType.FLOAT:
             return "<f4"
+        if dtype == DataType.FLOAT16:
+            return "<f2"
+        if dtype == DataType.BYTE:
+            return "<i1"
+        if dtype == DataType.BINARY:
+            return "<u1"
         else:
             raise UnsupportedVectorsDataTypeError(f"Unsupported data type: {dtype}")
 
@@ -78,7 +85,7 @@ class VectorsDataset:
 
     @staticmethod
     def parse(
-        vectors: BytesIO,
+        vectors,
         doc_ids: BytesIO,
         dimension: int,
         doc_count: int,
@@ -108,8 +115,13 @@ class VectorsDataset:
             np_vectors = np.frombuffer(
                 vector_view, dtype=VectorsDataset.get_numpy_dtype(vector_dtype)
             )
-            VectorsDataset.check_dimensions(np_vectors, doc_count * dimension)
-            np_vectors = np_vectors.reshape(doc_count, dimension)
+            # For BINARY data type, dimension is the number of bits as one vector element will be quantized into a bit.
+            # Therefore, to calculate the number of bytes needed, we need to divide it by 8
+            expected_length = int(
+                dimension / 8 if vector_dtype == DataType.BINARY else dimension
+            )
+            VectorsDataset.check_dimensions(np_vectors, doc_count * expected_length)
+            np_vectors = np_vectors.reshape(doc_count, expected_length)
 
             # Do the same for doc ids
             doc_id_view = doc_ids.getbuffer()
@@ -118,4 +130,4 @@ class VectorsDataset:
 
         except (ValueError, TypeError, MemoryError, RuntimeError) as e:
             raise VectorsDatasetError(f"Error parsing vectors: {e}") from e
-        return VectorsDataset(np_vectors, np_doc_ids)
+        return VectorsDataset(np_vectors, np_doc_ids, vector_dtype)
