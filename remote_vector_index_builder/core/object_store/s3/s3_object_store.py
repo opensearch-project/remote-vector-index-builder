@@ -11,7 +11,8 @@ import os
 import sys
 import threading
 from functools import cache
-from typing import Any, Dict
+from typing import Any, Dict, Union
+from io import BytesIO
 
 import boto3
 from boto3.s3.transfer import TransferConfig
@@ -287,12 +288,13 @@ class S3ObjectStore(ObjectStore):
                 self.upload_args["SSEKMSKeyId"] = head_obj_response["SSEKMSKeyId"]
                 # We do not specify encryption context for now
 
-    def write_blob(self, local_file_path: str, remote_store_path: str) -> None:
+    def write_blob(self, data: Union[str, BytesIO], remote_store_path: str) -> None:
         """
         Uploads a local file to S3, with retry logic.
 
         Args:
-            local_file_path (str): Path to the local file to be uploaded
+            data (Union[str, BytesIO]): Either a string representing a local file path
+                or a BytesIO object representing a buffer
             remote_store_path (str): The S3 key (path) where the file will be stored
 
         Returns:
@@ -324,17 +326,34 @@ class S3ObjectStore(ObjectStore):
         try:
             # Create transfer config object
             s3_transfer_config = TransferConfig(**self.upload_transfer_config)
-
-            self.s3_client.upload_file(
-                local_file_path,
-                self.bucket,
-                remote_store_path,
-                Config=s3_transfer_config,
-                Callback=callback_func,
-                ExtraArgs=self.upload_args,
+            self._do_write_blob(
+                data, remote_store_path, s3_transfer_config, callback_func
             )
             return
         except TypeError as e:
             raise BlobError(f"Error calling boto3.upload_file: {e}") from e
         except ClientError as e:
             raise BlobError(f"Error uploading file: {e}") from e
+
+    def _do_write_blob(
+        self, data, remote_store_path, s3_transfer_config, callback_func
+    ):
+        if isinstance(data, BytesIO):
+            data.seek(0)
+            self.s3_client.upload_fileobj(
+                data,
+                self.bucket,
+                remote_store_path,
+                Config=s3_transfer_config,
+                Callback=callback_func,
+                ExtraArgs=self.upload_args,
+            )
+        else:
+            self.s3_client.upload_file(
+                data,
+                self.bucket,
+                remote_store_path,
+                Config=s3_transfer_config,
+                Callback=callback_func,
+                ExtraArgs=self.upload_args,
+            )

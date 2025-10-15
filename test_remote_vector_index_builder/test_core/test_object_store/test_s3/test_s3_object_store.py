@@ -260,7 +260,7 @@ def test_read_blob_type_error_failure(
             store.read_blob("test/path", bytes_buffer)
 
 
-def test_write_blob_success(index_build_parameters, object_store_config):
+def test_write_blob_from_disk_success(index_build_parameters, object_store_config):
     with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
         store = S3ObjectStore(index_build_parameters, object_store_config)
         store.s3_client.upload_file = Mock()
@@ -284,6 +284,36 @@ def test_write_blob_success(index_build_parameters, object_store_config):
         )
         assert store.s3_client.upload_file.call_args.args == (
             "local/path",
+            store.bucket,
+            "remote/path",
+        )
+
+
+def test_write_blob_from_buffer_success(index_build_parameters, object_store_config):
+    with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
+        store = S3ObjectStore(index_build_parameters, object_store_config)
+        store.s3_client.upload_file = Mock()
+        bytes_buffer = BytesIO()
+        store.write_blob(bytes_buffer, "remote/path")
+
+        store.s3_client.upload_fileobj.assert_called_once()
+        assert isinstance(
+            store.s3_client.upload_fileobj.call_args.kwargs["Config"], TransferConfig
+        )
+        # validate a transfer config parameter matches the object_store_config parameter
+        assert (
+            store.s3_client.upload_fileobj.call_args.kwargs["Config"].__dict__[
+                "max_concurrency"
+            ]
+            == store.upload_transfer_config["max_concurrency"]
+        )
+        assert store.s3_client.upload_fileobj.call_args.kwargs["Callback"] is None
+        assert (
+            store.s3_client.upload_fileobj.call_args.kwargs["ExtraArgs"]
+            == store.upload_args
+        )
+        assert store.s3_client.upload_fileobj.call_args.args == (
+            bytes_buffer,
             store.bucket,
             "remote/path",
         )

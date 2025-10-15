@@ -16,6 +16,13 @@ from core.common.models.index_build_parameters import DataType
 from core.object_store.s3.s3_object_store_config import S3ClientConfig
 
 
+class MockPyCallbackIOWriter:
+    """Mock for faiss.PyCallbackIOWriter"""
+
+    def __init__(self, callback):
+        self.callback = callback
+
+
 class DeletionTracker:
     """Helper class to track object deletions"""
 
@@ -260,6 +267,7 @@ class FaissMock(ModuleType):
         self.write_index = self._write_index
         self.write_index_binary = self._write_index_binary
         self.index_binary_gpu_to_cpu = self._index_binary_gpu_to_cpu
+        self.PyCallbackIOWriter = self._PyCallbackIOWriter
 
     def _omp_set_num_threads(self, num_threads: int) -> None:
         self._num_threads = num_threads
@@ -274,29 +282,42 @@ class FaissMock(ModuleType):
             raise TypeError("Target must be GpuIndexBinaryCagra")
         return self.IndexBinaryHNSW()
 
-    def _write_index_binary(self, index, filepath):
-        if not isinstance(filepath, str):
-            raise TypeError("Filepath must be a string")
-        if not index:
-            raise ValueError("Index cannot be None")
+    def _write_index_binary(self, index, output_destination):
         if not isinstance(index, MockIndexBinaryIDMap):
             raise TypeError("Target must be IndexBinaryIDMap")
-        try:
-            with open(filepath, "wb") as f:
-                f.write(b"MOCK_INDEX_BINARY")
-        except IOError as e:
-            raise IOError(f"Failed to write to {filepath}: {str(e)}")
+        if isinstance(output_destination, str):
+            try:
+                with open(output_destination, "wb") as f:
+                    f.write(b"MOCK_INDEX_BINARY")
+            except IOError as e:
+                raise IOError(f"Failed to write to file: {str(e)}")
+        elif isinstance(output_destination, MockPyCallbackIOWriter):
+            try:
+                output_destination.callback(b"MOCK_INDEX_BINARY")
+            except IOError as e:
+                raise IOError(f"Failed to write to buffer: {str(e)}")
+        else:
+            raise TypeError("Unsupported output destination")
 
-    def _write_index(self, index, filepath):
-        if not isinstance(filepath, str):
-            raise TypeError("Filepath must be a string")
+    def _write_index(self, index, output_destination):
         if not index:
             raise ValueError("Index cannot be None")
-        try:
-            with open(filepath, "wb") as f:
-                f.write(b"MOCK_INDEX")
-        except IOError as e:
-            raise IOError(f"Failed to write to {filepath}: {str(e)}")
+        if isinstance(output_destination, str):
+            try:
+                with open(output_destination, "wb") as f:
+                    f.write(b"MOCK_INDEX_BINARY")
+            except IOError as e:
+                raise IOError(f"Failed to write to file: {str(e)}")
+        elif isinstance(output_destination, MockPyCallbackIOWriter):
+            try:
+                output_destination.callback(b"MOCK_INDEX_BINARY")
+            except IOError as e:
+                raise IOError(f"Failed to write to buffer: {str(e)}")
+        else:
+            raise TypeError("Unsupported output destination")
+
+    def _PyCallbackIOWriter(self, callback):
+        return MockPyCallbackIOWriter(callback)
 
 
 # Create the mock and patch faiss

@@ -5,8 +5,7 @@ import logging
 import sys
 
 from benchmarking.dataset.dataset import HDF5DataSet
-import config
-
+import benchmarking.config as config
 
 def recall_at_r(results, neighbor_dataset: HDF5DataSet, r, k, query_count):
     """

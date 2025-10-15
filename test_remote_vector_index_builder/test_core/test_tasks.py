@@ -7,6 +7,8 @@
 
 from io import BytesIO
 from unittest.mock import Mock, patch
+import tempfile
+import os
 
 import numpy as np
 import pytest
@@ -16,11 +18,13 @@ from core.tasks import (
     create_vectors_dataset,
     run_tasks,
     upload_index,
+    index_storage_context,
 )
 from core.common.exceptions import BlobError
 from core.common.models.vectors_dataset import VectorsDataset
 from core.object_store.object_store import ObjectStore
 from core.common.models.index_build_parameters import DataType
+from core.common.models.index_build_parameters import IndexSerializationMode
 
 
 @pytest.fixture
@@ -50,7 +54,30 @@ def mock_vectors_dataset():
     )
 
 
-def test_successful_creation(
+def test_download_blob_error_handling(
+    mock_object_store_factory,
+    mock_object_store,
+    index_build_parameters,
+    object_store_config,
+):
+    # Setup
+    mock_object_store_factory.return_value = mock_object_store
+    mock_object_store.read_blob.side_effect = BlobError("Failed to read blob")
+
+    vectors = BytesIO()
+    doc_ids = BytesIO()
+
+    # Execute and verify
+    with pytest.raises(BlobError):
+        create_vectors_dataset(
+            index_build_parameters, mock_object_store, vectors, doc_ids
+        )
+
+    vectors.close()
+    doc_ids.close()
+
+
+def test_successful_object_store_creation(
     mock_object_store_factory,
     mock_vectors_dataset_parse,
     mock_object_store,
@@ -77,33 +104,10 @@ def test_successful_creation(
     mock_vectors_dataset_parse.assert_called_once()
 
 
-def test_download_blob_error_handling(
-    mock_object_store_factory,
-    mock_object_store,
-    index_build_parameters,
-    object_store_config,
-):
-    # Setup
-    mock_object_store_factory.return_value = mock_object_store
-    mock_object_store.read_blob.side_effect = BlobError("Failed to read blob")
-
-    vectors = BytesIO()
-    doc_ids = BytesIO()
-
-    # Execute and verify
-    with pytest.raises(BlobError):
-        create_vectors_dataset(
-            index_build_parameters, mock_object_store, vectors, doc_ids
-        )
-
-    vectors.close()
-    doc_ids.close()
-
-
 def test_successful_build(index_build_parameters, mock_vectors_dataset):
 
     local_path = "/tmp/index"
-    # Execute
+
     build_index(index_build_parameters, mock_vectors_dataset, local_path)
 
 
@@ -145,18 +149,15 @@ def test_upload_blob_error_handling(
 def test_successful_task_execution(
     index_build_parameters, mock_vectors_dataset, object_store_config
 ):
-    with patch("core.tasks.create_vectors_dataset") as mock_create_dataset, patch(
-        "core.tasks.build_index"
-    ) as mock_build_index, patch("core.tasks.upload_index") as mock_upload_index, patch(
-        "os.remove"
-    ) as mock_os_remove, patch(
-        "os.makedirs"
-    ) as mock_os_makedirs:
+    with (
+        patch("core.tasks.create_vectors_dataset") as mock_create_dataset,
+        patch("core.tasks.upload_index") as mock_upload_index,
+        patch("os.makedirs") as mock_os_makedirs,
+    ):
 
         # Setup mocks
         mock_create_dataset.return_value = mock_vectors_dataset
         mock_upload_index.return_value = "remote/path/to/index.bin"
-
         # Execute function
         result = run_tasks(index_build_parameters, object_store_config)
 
@@ -167,34 +168,29 @@ def test_successful_task_execution(
 
         # Verify mock calls
         mock_create_dataset.assert_called_once()
-        mock_build_index.assert_called_once()
         mock_upload_index.assert_called_once()
         assert mock_vectors_dataset.free_vectors_space.call_count == 2
-        mock_os_remove.assert_called_once()
         mock_os_makedirs.assert_called_once()
 
 
-def test_successful_task_execution_with_object_store_config(
+def test_successful_task_execution_with_memory_storage_mode(
     index_build_parameters,
     mock_vectors_dataset,
     object_store_config,
-    mock_object_store,
-    mock_object_store_factory,
 ):
-    with patch("core.tasks.create_vectors_dataset") as mock_create_dataset, patch(
-        "core.tasks.build_index"
-    ) as mock_build_index, patch("core.tasks.upload_index") as mock_upload_index, patch(
-        "os.remove"
-    ) as mock_os_remove, patch(
-        "os.makedirs"
-    ) as mock_os_makedirs:
+    with (
+        patch("core.tasks.create_vectors_dataset") as mock_create_dataset,
+        patch("core.tasks.upload_index") as mock_upload_index,
+    ):
 
         # Setup mocks
         mock_create_dataset.return_value = mock_vectors_dataset
         mock_upload_index.return_value = "remote/path/to/index.bin"
 
         # Execute function
-        result = run_tasks(index_build_parameters, object_store_config)
+        result = run_tasks(
+            index_build_parameters, object_store_config, IndexSerializationMode.MEMORY
+        )
 
         # Verify success
         assert isinstance(result, TaskResult)
@@ -206,11 +202,8 @@ def test_successful_task_execution_with_object_store_config(
         call_args = mock_create_dataset.call_args[1]
         assert "object_store" in call_args
 
-        mock_build_index.assert_called_once()
         mock_upload_index.assert_called_once()
         assert mock_vectors_dataset.free_vectors_space.call_count == 2
-        mock_os_remove.assert_called_once()
-        mock_os_makedirs.assert_called_once()
 
 
 def test_create_vectors_dataset_failure(index_build_parameters, object_store_config):
@@ -228,24 +221,49 @@ def test_create_vectors_dataset_failure(index_build_parameters, object_store_con
 def test_build_index_failure(
     index_build_parameters, mock_vectors_dataset, object_store_config
 ):
-    with patch("core.tasks.create_vectors_dataset") as mock_create_dataset, patch(
-        "core.tasks.build_index"
-    ) as mock_build_index, patch("os.makedirs") as mock_os_makedirs:
+    with (
+        patch("core.tasks.create_vectors_dataset") as mock_create_dataset,
+        patch("core.tasks.FaissIndexBuildService.build_index") as mock_build_index,
+        patch("os.makedirs") as mock_os_makedirs,
+    ):
 
-        # Setup mocks
         mock_create_dataset.return_value = mock_vectors_dataset
         mock_build_index.side_effect = Exception("Index building failed")
 
-        # Execute function
         result = run_tasks(index_build_parameters, object_store_config)
 
-        # Verify success
         assert isinstance(result, TaskResult)
         assert result.file_name is None
         assert result.error == "Index building failed"
 
-        # Verify mock calls
         mock_create_dataset.assert_called_once()
         mock_build_index.assert_called_once()
         mock_vectors_dataset.free_vectors_space.assert_called_once()
         mock_os_makedirs.assert_called_once()
+
+
+def test_memory_mode():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        with index_storage_context(
+            IndexSerializationMode.MEMORY, temp_dir, "test.knnvec"
+        ) as storage:
+            assert isinstance(storage, BytesIO)
+            # simulate writing to buffer
+            storage.write(b"test")
+            assert storage.tell() > 0
+        # check that storage is closed
+        assert storage.closed
+
+
+def test_disk_mode():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        with index_storage_context(
+            IndexSerializationMode.DISK, temp_dir, "sub/test.knnvec"
+        ) as storage:
+            assert isinstance(storage, str)
+            # simulate writing to file
+            with open(storage, "wb") as f:
+                f.write(b"test")
+            assert os.path.getsize(storage) > 0
+        # check that file got cleaned up
+        assert not os.path.exists(storage)

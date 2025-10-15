@@ -10,6 +10,7 @@ import pytest
 from unittest.mock import patch
 import os
 
+from core.common.models import IndexSerializationMode
 from core.common.models.index_build_parameters import DataType
 from core.common.models.index_builder import CagraGraphBuildAlgo
 from core.common.models.index_builder.faiss import FaissGPUIndexCagraBuilder
@@ -64,7 +65,15 @@ class TestFaissIndexBuildService:
             output_path = str(tmp_path / "output.index")
             mock_gpu_from_dict.return_value = FaissGPUIndexCagraBuilder()
 
-            service.build_index(index_build_parameters, vectors_dataset, output_path)
+            cpu_index_output = service.build_index(
+                index_build_parameters, vectors_dataset
+            )
+            service.write_cpu_index(
+                cpu_index_output,
+                index_build_parameters,
+                IndexSerializationMode.DISK,
+                output_path,
+            )
 
             # Ensuring that FaissGPUIndexCagraBuilder parameters are set correctly
             expected_params = self._get_expected_gpu_params(
@@ -74,6 +83,45 @@ class TestFaissIndexBuildService:
 
             assert faiss.omp_get_num_threads() == 2  # 8 CPUs/4 = 2 threads
             assert os.path.exists(output_path)
+
+    def test_write_cpu_index_memory_mode(
+        self, service, vectors_dataset, index_build_parameters
+    ):
+        from io import BytesIO
+
+        cpu_index_output = service.build_index(index_build_parameters, vectors_dataset)
+
+        buffer = BytesIO()
+        service.write_cpu_index(
+            cpu_index_output,
+            index_build_parameters,
+            IndexSerializationMode.MEMORY,
+            buffer,
+        )
+
+        assert buffer.tell() > 0
+        buffer.close()
+
+    def test_write_binary_cpu_index_memory_mode(
+        self, service, binary_vectors_dataset, binary_index_build_parameters
+    ):
+        from core.common.models import IndexSerializationMode
+        from io import BytesIO
+
+        cpu_index_output = service.build_index(
+            binary_index_build_parameters, binary_vectors_dataset
+        )
+
+        buffer = BytesIO()
+        service.write_cpu_index(
+            cpu_index_output,
+            binary_index_build_parameters,
+            IndexSerializationMode.MEMORY,
+            buffer,
+        )
+
+        assert buffer.tell() > 0
+        buffer.close()
 
     def _get_expected_gpu_params(self, service, index_build_parameters):
         if index_build_parameters.data_type != DataType.BINARY:
@@ -141,7 +189,6 @@ class TestFaissIndexBuildService:
                 service.build_index(
                     index_build_parameters,
                     vectors_dataset,
-                    str(tmp_path / "index.faiss"),
                 )
 
             assert "GPU creation failed" in str(exc_info.value)
@@ -185,7 +232,6 @@ class TestFaissIndexBuildService:
                 service.build_index(
                     index_build_parameters,
                     vectors_dataset,
-                    str(tmp_path / "index.faiss"),
                 )
 
             assert "Conversion failed" in str(exc_info.value)
@@ -221,16 +267,27 @@ class TestFaissIndexBuildService:
     def _do_test_build_index_write_error(
         self, service, vectors_dataset, index_build_parameters, tmp_path
     ):
+        from core.common.models import IndexSerializationMode
+
         """Test error handling during index writing"""
-        with patch(
-            "core.common.models.index_builder.faiss.FaissIndexHNSWCagraBuilder.write_cpu_index",
-            side_effect=Exception("Write failed"),
-        ):
+        output_path = str(tmp_path / "index.faiss")
+
+        # Build index successfully first
+        cpu_index_output = service.build_index(index_build_parameters, vectors_dataset)
+
+        # Mock faiss.write_index to fail
+        write_func = (
+            "faiss.write_index"
+            if index_build_parameters.data_type != DataType.BINARY
+            else "faiss.write_index_binary"
+        )
+        with patch(write_func, side_effect=Exception("Write failed")):
             with pytest.raises(Exception) as exc_info:
-                service.build_index(
+                service.write_cpu_index(
+                    cpu_index_output,
                     index_build_parameters,
-                    vectors_dataset,
-                    str(tmp_path / "index.faiss"),
+                    IndexSerializationMode.DISK,
+                    output_path,
                 )
 
             assert "Write failed" in str(exc_info.value)

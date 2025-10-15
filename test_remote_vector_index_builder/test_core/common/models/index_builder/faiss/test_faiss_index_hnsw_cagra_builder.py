@@ -8,8 +8,6 @@
 import faiss
 import pytest
 from typing import Dict, Any
-from unittest.mock import patch
-import os
 
 from core.common.models.index_builder.faiss import FaissIndexHNSWCagraBuilder
 from core.common.models.index_builder import (
@@ -96,42 +94,3 @@ class TestFaissIndexHNSWCagraBuilder:
             )
         assert "Failed to convert GPU index to CPU index" in str(exc_info.value)
         assert "Simulated copy error" in str(exc_info.value)
-
-    def test_write_cpu_index_io_error(self, default_builder, tmp_path):
-
-        cpu_output = FaissCpuBuildIndexOutput(
-            cpu_index=faiss.IndexHNSWCagra(), index_id_map=faiss.IndexIDMap()
-        )
-
-        # Create an invalid path
-        invalid_path = str(tmp_path / "nonexistent" / "index.faiss")
-
-        # Mock write_index to raise IOError
-        with patch.object(faiss, "write_index", side_effect=IOError("IO Error")):
-            with pytest.raises(Exception) as exc_info:
-                default_builder.write_cpu_index(cpu_output, invalid_path)
-
-            assert f"Failed to write index to file {invalid_path}" in str(
-                exc_info.value
-            )
-            assert "IO Error" in str(exc_info.value)
-
-    def test_write_cpu_index_file_content(self, default_builder, tmp_path):
-        """Test the content of written file"""
-        # Create mock CPU index and output
-        cpu_index = faiss.IndexHNSWCagra()
-        index_id_map = faiss.IndexIDMap()
-        index_id_map.index = cpu_index
-
-        cpu_output = FaissCpuBuildIndexOutput(
-            cpu_index=cpu_index, index_id_map=index_id_map
-        )
-
-        output_path = str(tmp_path / "index.faiss")
-
-        # Write index
-        default_builder.write_cpu_index(cpu_output, output_path)
-
-        # Verify file was created
-        assert os.path.exists(output_path)
-        assert os.path.getsize(output_path) > 0

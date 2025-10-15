@@ -10,6 +10,7 @@ import os
 from typing import Optional, Tuple
 from app.models.workflow import BuildWorkflow
 from core.object_store.s3.s3_object_store_config import S3ClientConfig
+from core.common.models import IndexSerializationMode
 from core.tasks import run_tasks
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,9 @@ class IndexBuilder:
                 - Error message if failed, None otherwise
         """
         s3_endpoint_url = os.environ.get("S3_ENDPOINT_URL", None)
+        index_serialization_mode = os.environ.get(
+            "INDEX_SERIALIZATION_MODE", IndexSerializationMode.DISK
+        )
         result = run_tasks(
             workflow.index_build_parameters,
             {
@@ -44,6 +48,7 @@ class IndexBuilder:
                     endpoint_url=s3_endpoint_url,
                 ),
             },
+            index_serialization_mode,
         )
         if not result.file_name:
             return False, None, result.error

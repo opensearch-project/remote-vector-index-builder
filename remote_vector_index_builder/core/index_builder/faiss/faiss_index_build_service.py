@@ -9,6 +9,7 @@ import faiss
 from core.common.models import (
     IndexBuildParameters,
     VectorsDataset,
+    IndexSerializationMode,
 )
 
 from core.common.models.index_builder.faiss import (
@@ -20,10 +21,15 @@ from core.index_builder.index_builder_utils import (
     get_omp_num_threads,
 )
 from core.common.models.index_build_parameters import DataType
-from core.common.models.index_builder import CagraGraphBuildAlgo
+from core.common.models.index_builder import (
+    CagraGraphBuildAlgo,
+    FaissCpuBuildIndexOutput,
+)
 from core.index_builder.interface import IndexBuildService
 from timeit import default_timer as timer
 
+from typing import Union, Any
+from io import BytesIO
 import logging
 
 logger = logging.getLogger(__name__)
@@ -42,19 +48,19 @@ class FaissIndexBuildService(IndexBuildService):
         self,
         index_build_parameters: IndexBuildParameters,
         vectors_dataset: VectorsDataset,
-        cpu_index_output_file_path: str,
-    ) -> None:
+    ) -> Any:
         """
         Orchestrates the workflow of
         - creating a GPU Index for the specified vectors dataset,
         - converting into CPU compatible Index
-        - and writing the CPU Index to disc
         Uses the faiss library methods to achieve this.
 
         Args:
             vectors_dataset: The set of vectors to index
             index_build_parameters: The API Index Build parameters
-            cpu_index_output_file_path: The complete file path on disc to write the cpuIndex to.
+
+        Returns:
+            The CPU compatible Index
         """
         faiss_gpu_index_cagra_builder = None
         faiss_index_hnsw_cagra_builder = None
@@ -139,17 +145,7 @@ class FaissIndexBuildService(IndexBuildService):
                 f"{index_conversion_time:.2f} seconds"
             )
 
-            # Step 3: Write CPU Index to persistent storage
-            t1 = timer()
-            faiss_index_hnsw_cagra_builder.write_cpu_index(
-                faiss_cpu_build_index_output, cpu_index_output_file_path
-            )
-            t2 = timer()
-            index_write_time = t2 - t1
-            logger.debug(
-                f"Index write time for vector path {index_build_parameters.vector_path}: "
-                f"{index_write_time:.2f} seconds"
-            )
+            return faiss_cpu_build_index_output
 
         except Exception as exception:
             # Clean up GPU Index Response if orchestrator failed after GPU Index Creation
@@ -161,17 +157,70 @@ class FaissIndexBuildService(IndexBuildService):
                         f"Failed to clean up GPU index response for vector path "
                         f"{index_build_parameters.vector_path}: {e}"
                     )
-
-            # Clean up CPU Index Response if orchestrator failed after CPU Index Creation
-            if faiss_cpu_build_index_output is not None:
-                try:
-                    faiss_cpu_build_index_output.cleanup()
-                except Exception as e:
-                    logger.error(
-                        f"Failed to clean up CPU index response for vector path "
-                        f"{index_build_parameters.vector_path}: {e}"
-                    )
-
             raise Exception(
                 f"Faiss Index Build Service build_index workflow failed: {exception}"
+            ) from exception
+
+    def write_cpu_index(
+        self,
+        cpu_build_index_output: FaissCpuBuildIndexOutput,
+        index_build_parameters: IndexBuildParameters,
+        index_serialization_mode: IndexSerializationMode,
+        output_destination: Union[str, BytesIO],
+    ) -> None:
+        """
+        Method to write the CPU index and vector dataset id mapping to storage destination,
+        for uploading later to remote object store.
+        Uses faiss write_index library method to achieve this
+
+        Args:
+        cpu_build_index_output (FaissCpuBuildIndexOutput): A datamodel containing the created GPU Faiss Index
+            and dataset Vector Ids components
+        index_build_parameters: The API Index Build parameters
+        index_serialization_mode: The serialization mode for the index
+        output_destination (Union[str, BytesIO]): Output destination for the index.
+            - str: File path for disk writing
+            - BytesIO: Existing buffer to write to
+        """
+        try:
+            t1 = timer()
+            writer = None
+            if (
+                index_serialization_mode == IndexSerializationMode.MEMORY
+                and isinstance(
+                    output_destination, BytesIO
+                )  # for resolving mypy errors, we add this check
+            ):
+                # Use a faiss callback to serialize directly to the buffer
+                # We use a faiss callback instead of faiss.serialize_index
+                # to avoid the extra memory overhead of the c++ vector data structure
+                # and numpy arrays created in serialize_index method
+                writer = faiss.PyCallbackIOWriter(output_destination.write)
+            else:
+                # Otherwise, treat the output destination like a file path
+                writer = output_destination
+            if index_build_parameters.data_type != DataType.BINARY:
+                faiss.write_index(cpu_build_index_output.index_id_map, writer)
+            else:
+                faiss.write_index_binary(cpu_build_index_output.index_id_map, writer)
+            # Free memory taken by CPU Index
+            cpu_build_index_output.cleanup()
+            t2 = timer()
+            index_write_time = t2 - t1
+            logger.debug(
+                f"Index write time for vector path {index_build_parameters.vector_path}: "
+                f"{index_write_time:.2f} seconds"
+            )
+        except Exception as exception:
+            # Clean up CPU Index Response if write failed
+            try:
+                cpu_build_index_output.cleanup()
+            except Exception as e:
+                logger.error(
+                    f"Failed to clean up CPU index response for vector path "
+                    f"{index_build_parameters.vector_path}: {e}"
+                )
+
+            raise Exception(
+                f"Faiss Index Build Service write_index workflow failed: {exception}"
             ) from exception

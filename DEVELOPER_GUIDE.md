@@ -177,7 +177,7 @@ Follow the steps below to use run the API image locally. Note that s3 is current
     ```
 7. Run the docker image: 
     ```
-    docker run --gpus all -p 80:1025 opensearchstaging/remote-vector-index-builder:api-latest
+    docker run -e AWS_DEFAULT_REGION=us-east-1 --gpus all -p 80:1025 opensearchstaging/remote-vector-index-builder:api-latest
     ```
 8. In a separate terminal, issue a build request:
     ```

@@ -22,8 +22,13 @@ The run_tasks function orchestrates these tasks and returns a TaskResult object 
 - error: Any error message if the process failed
 
 Consumers of this module can either import and call the run_tasks function, or import and call each
-individual task in sequence. One reason to call each task in sequence is to persist the vectors to disk,
+individual task in sequence.
+
+One reason to call each task in sequence is to persist the vectors to disk,
 before building the index. The default run_tasks function does not do this, for simplicity.
+
+One reason to call the default run_tasks function is that it optimizes the memory usage, by cleaning
+up the vectors after the index is built in memory
 
 """
 import logging
@@ -33,10 +38,15 @@ from dataclasses import dataclass
 from io import BytesIO
 from timeit import default_timer as timer
 import traceback
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
+from contextlib import contextmanager
 
-from core.common.models import IndexBuildParameters
-from core.common.models import VectorsDataset
+
+from core.common.models import (
+    IndexBuildParameters,
+    IndexSerializationMode,
+    VectorsDataset,
+)
 from core.index_builder.faiss.faiss_index_build_service import FaissIndexBuildService
 from core.object_store.object_store_factory import ObjectStoreFactory
 
@@ -69,6 +79,7 @@ class TaskResult:
 def run_tasks(
     index_build_params: IndexBuildParameters,
     object_store_config: Optional[Dict[str, Any]] = None,
+    index_serialization_mode: IndexSerializationMode = IndexSerializationMode.DISK,
 ) -> TaskResult:
     """Execute the index building tasks using the provided parameters.
 
@@ -76,13 +87,16 @@ def run_tasks(
     1. Creating a temporary directory for processing
     2. Setting up byte buffers for vectors and document IDs
     3. Downloading vector and document ID data from remote storage
-    4. Creating a vectors dataset for processing
+    4. Building the index, then storing the index in memory or disk
+    5. Uplaoding index to remote storage
 
     Args:
         index_build_params (IndexBuildParameters): Parameters for building the index,
             including vector path and other configuration settings.
         object_store_config (Dict[str, Any], optional): Configuration settings for the
             object store. Defaults to None, in which case an empty dictionary is used.
+        index_serialization_mode (IndexSerializationMode): The storage location for
+            the constructed vector index. Defaults to disk
 
     Returns:
         TaskResult: An object containing either:
@@ -90,10 +104,19 @@ def run_tasks(
             - error: An error message if the operation failed
 
     """
-    with tempfile.TemporaryDirectory() as temp_dir, BytesIO() as vector_buffer, BytesIO() as doc_id_buffer:
+    with (
+        tempfile.TemporaryDirectory() as temp_dir,
+        index_storage_context(
+            index_serialization_mode,
+            temp_dir,
+            index_build_params.vector_path,
+        ) as index_storage,
+    ):
         if object_store_config is None:
             object_store_config = {}
 
+        vector_buffer = BytesIO()
+        doc_id_buffer = BytesIO()
         vectors_dataset = None
         try:
             logger.debug(
@@ -114,33 +137,45 @@ def run_tasks(
                 vector_bytes_buffer=vector_buffer,
                 doc_id_bytes_buffer=doc_id_buffer,
             )
+
             t2 = timer()
             download_time = t2 - t1
             logger.debug(
                 f"Vector download time for vector path {index_build_params.vector_path}: {download_time:.2f} seconds"
             )
 
-            index_local_path = os.path.join(temp_dir, index_build_params.vector_path)
-            directory = os.path.dirname(index_local_path)
-            os.makedirs(directory, exist_ok=True)
-
             logger.debug(
                 f"Building GPU index for vector path: {index_build_params.vector_path}"
             )
 
+            # First build the faiss index
+
             t1 = timer()
-            build_index(
-                index_build_params=index_build_params,
-                vectors_dataset=vectors_dataset,
-                cpu_index_output_file_path=index_local_path,
+            faiss_service = FaissIndexBuildService()
+            cpu_index = faiss_service.build_index(
+                index_build_params,
+                vectors_dataset,
             )
+
+            # now that cpu index is in memory, free the vectors to optimize memory usage
+
+            # free the memory view to the vector and doc id buffer
+            vectors_dataset.free_vectors_space()
+
+            # close the buffers
+            vector_buffer.close()
+            doc_id_buffer.close()
+
+            # finally, write the index to index_storage
+            faiss_service.write_cpu_index(
+                cpu_index, index_build_params, index_serialization_mode, index_storage
+            )
+
             t2 = timer()
             build_time = t2 - t1
             logger.debug(
                 f"Total index build time for path {index_build_params.vector_path}: {build_time:.2f} seconds"
             )
-
-            vectors_dataset.free_vectors_space()
 
             logger.debug(
                 f"Uploading index for vector path: {index_build_params.vector_path}"
@@ -150,15 +185,13 @@ def run_tasks(
             remote_path = upload_index(
                 index_build_params=index_build_params,
                 object_store=object_store,
-                index_local_path=index_local_path,
+                data=index_storage,
             )
             t2 = timer()
             upload_time = t2 - t1
             logger.debug(
                 f"Total upload time for path {index_build_params.vector_path}: {upload_time:.2f} seconds"
             )
-
-            os.remove(index_local_path)
 
             logger.debug(
                 f"Ending task execution for vector path: {index_build_params.vector_path}"
@@ -174,12 +207,15 @@ def run_tasks(
         finally:
             if vectors_dataset is not None:
                 vectors_dataset.free_vectors_space()
+            vector_buffer.close()
+            doc_id_buffer.close()
 
 
 def build_index(
     index_build_params: IndexBuildParameters,
     vectors_dataset: VectorsDataset,
-    cpu_index_output_file_path: str,
+    output_destination: Union[BytesIO, str],
+    index_serialization_mode: IndexSerializationMode = IndexSerializationMode.DISK,
 ) -> None:
     """Builds an index using the provided vectors dataset and parameters.
 
@@ -193,8 +229,10 @@ def build_index(
             including:
             - dimension: The dimension of the vectors
             - index_parameters: Parameters for the index, such as space type
+        index_serialization_mode
         vectors_dataset (VectorsDataset): The dataset containing the vectors and document IDs
-        cpu_index_output_file_path (str): The file path where the CPU compatible index will be saved
+        output_destination: The output destination - either a file path (str) or buffer (BytesIO) to write the graph to
+
 
     Returns:
         None
@@ -202,14 +240,21 @@ def build_index(
     Note:
         - The caller is responsible for closing the vectors_dataset object
         - The caller is responsible for removing the CPU index file after upload to remote storage
+        - This method
 
     Raises:
         Exception: If the index build fails
 
     """
+
     faiss_service = FaissIndexBuildService()
-    faiss_service.build_index(
-        index_build_params, vectors_dataset, cpu_index_output_file_path
+    cpu_index = faiss_service.build_index(
+        index_build_params,
+        vectors_dataset,
+    )
+
+    faiss_service.write_cpu_index(
+        cpu_index, index_build_params, index_serialization_mode, output_destination
     )
 
 
@@ -295,7 +340,7 @@ def create_vectors_dataset(
 def upload_index(
     index_build_params: IndexBuildParameters,
     object_store: ObjectStore,
-    index_local_path: str,
+    data: Union[BytesIO, str],
 ) -> str:
     """
     Uploads a built index from a local path to the configured object store.
@@ -304,7 +349,9 @@ def upload_index(
         index_build_params (IndexBuildParameters): Parameters for the index build process,
             containing the vector path which is used to determine the upload destination
         object_store (ObjectStore): Object Store instance
-        index_local_path (str): Local filesystem path where the built index is stored
+        data (Union[str, BytesIO]): Either a string representing a local file path
+            or a BytesIO object representing a buffer
+
 
     Returns:
         None
@@ -314,7 +361,7 @@ def upload_index(
         - Uses the vector_path from index_build_params to determine the upload destination
             - The upload destination has the same file path as the vector_path
               except for the file extension. The file extension is based on the engine
-        - The index_local_path must exist and be readable
+        - The data store must be a buffer or a filepath
         - The function assumes index_build_params has already been validated by Pydantic
 
     Raises:
@@ -328,6 +375,34 @@ def upload_index(
     # the index path is in the same root location as the vector path
     index_remote_path = vector_root_path + "." + index_build_params.engine
 
-    object_store.write_blob(index_local_path, index_remote_path)
+    object_store.write_blob(data, index_remote_path)
 
     return index_remote_path
+
+
+@contextmanager
+def index_storage_context(
+    storage_mode: IndexSerializationMode, temp_dir: str, vector_path: str
+):
+    """Context manager for index storage setup and cleanup."""
+    if storage_mode == IndexSerializationMode.MEMORY:
+        logger.debug(
+            f"Build is configured to store index in memory for vector path {vector_path}"
+        )
+        index_buffer = BytesIO()
+        try:
+            yield index_buffer
+        finally:
+            index_buffer.close()
+    else:  # DISK
+        logger.debug(
+            f"Build is configured to store index on disk for vector path {vector_path}"
+        )
+        index_local_path = os.path.join(temp_dir, vector_path)
+        directory = os.path.dirname(index_local_path)
+        os.makedirs(directory, exist_ok=True)
+        try:
+            yield index_local_path
+        finally:
+            if os.path.exists(index_local_path):
+                os.remove(index_local_path)

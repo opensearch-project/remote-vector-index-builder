@@ -6,6 +6,7 @@
 # compatible open source license.
 
 from abc import ABC, abstractmethod
+from typing import Union
 from io import BytesIO
 
 
@@ -40,12 +41,13 @@ class ObjectStore(ABC):
         pass
 
     @abstractmethod
-    def write_blob(self, local_file_path: str, remote_store_path: str) -> None:
+    def write_blob(self, data: Union[str, BytesIO], remote_store_path: str) -> None:
         """
         Uploads the blob at local_file_path to the remote_store_path
 
         Args:
-            local_file_path (str): Path to the local file that needs to be uploaded
+            data (Union[str, BytesIO]): Either a string representing a local file path
+                or a BytesIO object representing a buffer
             remote_store_path (str): The path/key where the file should be stored in remote storage
 
         Returns:

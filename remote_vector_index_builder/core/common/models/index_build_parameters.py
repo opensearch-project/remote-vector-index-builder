@@ -121,6 +121,18 @@ class IndexParameters(BaseModel):
     )
 
 
+class IndexSerializationMode(str, Enum):
+    """Serialization mode for the constructed vector index
+
+    Attributes:
+        MEMORY: Store index in memory after processing
+        DISK: Store index on disk after processing
+    """
+
+    MEMORY = "memory"
+    DISK = "disk"
+
+
 class IndexBuildParameters(BaseModel):
     """Parameters required for building a vector index.
 
