@@ -3,7 +3,7 @@ version: "3.8"
 services:
   localstack:
     container_name: localstack-main
-    image: localstack/localstack
+    image: localstack/localstack:4.14
     ports:
       - "4566:4566"
     environment:
