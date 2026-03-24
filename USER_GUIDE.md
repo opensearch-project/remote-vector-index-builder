@@ -33,5 +33,5 @@ For information on configuring OpenSearch to use this service, please refer to t
 
 ## Additional Information
 
-You are free to implement a different API server, as long as it conforms to the [Remote Vector Service API Contract](/API.md).
+You are free to implement a different API server, as long as it conforms to the [Remote Vector Service API Contract](./API.md).
 This custom API image can still use the `core` image libraries to execute the index build workflow.

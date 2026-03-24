@@ -118,7 +118,7 @@ docker build  -f ./base_image/build_scripts/Dockerfile . -t opensearchstaging/re
 ```
 
 ### Core Image
-The path [`/remote-vector-index-builder/core`](/remote_vector_index_builder/core/) contains the code for the `core` image.
+The path [`/remote-vector-index-builder/core`](./remote_vector_index_builder/core/) contains the code for the `core` image.
 Run the below command to create the `core` image:
 
 ```
@@ -128,7 +128,7 @@ docker build  -f ./remote_vector_index_builder/core/Dockerfile . -t opensearchst
 The image can be built on any type of machine with `docker` installed
 
 ### API Image
-The path [`/remote-vector-index-builder/app`](/remote_vector_index_builder/app/) contains the code for the `api` image. 
+The path [`/remote-vector-index-builder/app`](./remote_vector_index_builder/app/) contains the code for the `api` image. 
 Run the below command to create `api` image. 
 
 ```
@@ -151,7 +151,7 @@ Typically an [EC2 G5](https://aws.amazon.com/ec2/instance-types/g5/) 2xlarge ins
 ## Running Docker Images
 
 ### Run the API Image as standalone container
-The API image implements the [Remote Vector Service API Contract](/API.md). It provides out-of-the-box APIs
+The API image implements the [Remote Vector Service API Contract](./API.md). It provides out-of-the-box APIs
 that directly integrate with the OpenSearch k-NN Remote Vector Service Client. The default image
 configuration allows it to be used to run integration tests for the OpenSearch k-NN Remote Vector component.
 This configuration maintains the job state in an in-memory dictionary with a TTL, and uses a fixed size
@@ -206,7 +206,7 @@ Simple memory profiling can be done during development to get memory usage stati
 
 ### GPU Memory Profiling with NVIDIA SMI
 
-1. Install [py3nvml](https://pypi.org/project/py3nvml/): In [`/remote_vector_index_builder/core/requirements.txt`](/remote_vector_index_builder/core/requirements.txt) add `py3nvml` on a newline.
+1. Install [py3nvml](https://pypi.org/project/py3nvml/): In [`/remote_vector_index_builder/core/requirements.txt`](./remote_vector_index_builder/core/requirements.txt) add `py3nvml` on a newline.
 
 2. Add import statement and initialize method in the file containing the driver code.
 ```
@@ -229,7 +229,7 @@ def get_gpu_memory():
 
 ### CPU Memory Profiling with memory_profiler
 
-1. Add the below command in [`/remote_vector_index_builder/core/Dockerfile`](/remote_vector_index_builder/core/Dockerfile) to install [memory_profiler](https://pypi.org/project/memory-profiler/).
+1. Add the below command in [`/remote_vector_index_builder/core/Dockerfile`](./remote_vector_index_builder/core/Dockerfile) to install [memory_profiler](https://pypi.org/project/memory-profiler/).
 ```
 RUN conda install -c conda-forge memory_profiler -y
 ```
