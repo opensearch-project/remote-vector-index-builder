@@ -26,24 +26,34 @@ from core.object_store.s3.s3_object_store_config import S3ClientConfig
 logger = logging.getLogger(__name__)
 
 
-def get_cpus(factor: float) -> int:
-    """Get the number of CPUs to use for s3 upload or download operation
+# Minimum S3 transfer concurrency (max_concurrency). S3 transfers are
+# network-bound rather than CPU-bound, so a pure cpu_count * factor starves
+# small instances (e.g. 0.625 * 4 vCPU = 2 threads on g6.xlarge). A
+# download/upload benchmark sweep on g6.xlarge and g6.2xlarge showed throughput
+# plateaus around 8 threads for those hosts. Larger instances keep scaling via
+# the factor (which already exceeds this floor), so their behavior is unchanged.
+MIN_TRANSFER_CONCURRENCY = 8
+
+
+def get_transfer_concurrency(factor: float) -> int:
+    """Get the max_concurrency to use for an s3 upload or download operation.
 
     Args:
-        factor (float): The factor to multiply total cpu count by
+        factor (float): The factor to multiply total cpu count by.
 
     Returns:
-        int: The number of CPUs that will be used for s3 upload or download
+        int: The number of concurrent threads boto3 will use for the transfer.
 
-    The cpu count is rounded down to the nearest integer
+    Scales as floor(cpu_count * factor) but is floored at
+    MIN_TRANSFER_CONCURRENCY so small instances are not starved.
     """
 
     # according to mypy, os.cpu_count can be None
     # if it is none, then default to 1 thread
     cpu_count = os.cpu_count()
-    if cpu_count:
-        return max(1, math.floor(cpu_count * factor))
-    return 1
+    if not cpu_count:
+        return 1
+    return max(MIN_TRANSFER_CONCURRENCY, math.floor(cpu_count * factor))
 
 
 @cache
@@ -124,14 +134,14 @@ class S3ObjectStore(ObjectStore):
 
         self.DEFAULT_DOWNLOAD_TRANSFER_CONFIG = {
             "multipart_chunksize": 50 * 1024 * 1024,  # 50MB
-            "max_concurrency": get_cpus(factor=0.625),
+            "max_concurrency": get_transfer_concurrency(factor=0.625),
             "multipart_threshold": 50 * 1024 * 1024,  # 50MB
             "io_chunksize": sys.maxsize,
         }
 
         self.DEFAULT_UPLOAD_TRANSFER_CONFIG = {
             "multipart_chunksize": 50 * 1024 * 1024,  # 50MB
-            "max_concurrency": get_cpus(factor=0.5),
+            "max_concurrency": get_transfer_concurrency(factor=0.5),
             "multipart_threshold": 50 * 1024 * 1024,  # 50MB
         }
 

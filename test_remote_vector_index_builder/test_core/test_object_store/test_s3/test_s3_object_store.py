@@ -13,7 +13,11 @@ from botocore.config import Config
 from boto3.s3.transfer import TransferConfig
 from botocore.exceptions import ClientError
 from core.common.exceptions import BlobError
-from core.object_store.s3.s3_object_store import S3ObjectStore, get_boto3_client
+from core.object_store.s3.s3_object_store import (
+    S3ObjectStore,
+    get_boto3_client,
+    get_transfer_concurrency,
+)
 from core.object_store.s3.s3_object_store_config import S3ClientConfig
 
 
@@ -52,6 +56,37 @@ def bytes_buffer():
     bytes_buffer = BytesIO()
     yield bytes_buffer
     bytes_buffer.close()
+
+
+@pytest.mark.parametrize(
+    "cpu_count,factor,expected",
+    [
+        (None, 0.625, 1),  # cpu_count unavailable -> 1 thread
+        (1, 0.625, 8),  # tiny host -> floored to MIN_TRANSFER_CONCURRENCY
+        (4, 0.625, 8),  # g6.xlarge download -> floored (floor(4 * 0.625) = 2)
+        (4, 0.5, 8),  # g6.xlarge upload -> floored
+        (8, 0.625, 8),  # g6.2xlarge download -> floored (floor(8 * 0.625) = 5)
+        (8, 0.5, 8),  # g6.2xlarge upload -> floored (floor(8 * 0.5) = 4)
+        (16, 0.625, 10),  # g6.4xlarge download -> floor(16 * 0.625), above floor
+        (16, 0.5, 8),  # g6.4xlarge upload -> floor(16 * 0.5), equals floor
+        (48, 0.625, 30),  # g6.12xlarge download -> floor(48 * 0.625), unchanged
+    ],
+)
+def test_get_transfer_concurrency(cpu_count, factor, expected):
+    with patch("os.cpu_count", return_value=cpu_count):
+        assert get_transfer_concurrency(factor) == expected
+
+
+def test_default_transfer_concurrency_propagates_to_configs(index_build_parameters):
+    # On a g6.2xlarge (8 vCPU) with no overrides, both defaults hit the floor (8).
+    with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
+        with patch("os.cpu_count", return_value=8):
+            store = S3ObjectStore(
+                index_build_parameters,
+                {"s3_client_config": S3ClientConfig(region_name="us-east-1")},
+            )
+            assert store.download_transfer_config["max_concurrency"] == 8
+            assert store.upload_transfer_config["max_concurrency"] == 8
 
 
 def test_get_boto3_client():

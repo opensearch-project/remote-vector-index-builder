@@ -38,7 +38,7 @@ For more information, see [opensearch.org](https://opensearch.org/).
 
 ## Project Style Guidelines
 
-The [OpenSearch Project style guidelines](https://github.com/opensearch-project/documentation-website/blob/main/STYLE_GUIDE.md) and [OpenSearch terms](https://github.com/opensearch-project/documentation-website/blob/main/TERMS.md) documents provide style standards and terminology to be observed when creating OpenSearch Project content.
+The [OpenSearch Project style guidelines](https://github.com/opensearch-project/documentation-website/blob/main/style-guide/STYLE_GUIDE.md) and [OpenSearch terms](https://github.com/opensearch-project/documentation-website/blob/main/style-guide/TERMS.md) documents provide style standards and terminology to be observed when creating OpenSearch Project content.
 
 ## Code of Conduct
 
