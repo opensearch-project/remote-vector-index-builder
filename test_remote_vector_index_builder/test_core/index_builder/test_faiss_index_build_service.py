@@ -137,7 +137,7 @@ class TestFaissIndexBuildService:
                     ),
                 },
                 "graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
-                * 2,
+                * 4,
                 "intermediate_graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
                 * 4,
             }
@@ -145,7 +145,7 @@ class TestFaissIndexBuildService:
             return {
                 "graph_build_algo": CagraGraphBuildAlgo.NN_DESCENT,
                 "graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
-                * 2,
+                * 4,
                 "intermediate_graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
                 * 4,
             }
