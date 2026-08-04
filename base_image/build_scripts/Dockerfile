@@ -46,7 +46,7 @@ RUN conda install -y -q -c conda-forge gxx_linux-64=14.2 sysroot_linux-64=2.28
 
 # install all the dependencies we need for installing faiss
 # Ref: https://github.com/facebookresearch/faiss/blob/main/.github/actions/build_cmake/action.yml#L64
-RUN conda install -y -q libcuvs=25.08 cuda-nvcc 'cuda-version>=12.0,<=12.5' cuda-toolkit=12.4.1 gxx_linux-64=12.4 -c rapidsai -c rapidsai-nightly -c conda-forge
+RUN conda install -y -q libcuvs=26.06 cuda-nvcc 'cuda-version>=12.0,<=12.5' gxx_linux-64=12.4 -c rapidsai -c rapidsai-nightly -c conda-forge
 
 # Execute steps to build faiss
 # Ref: https://github.com/facebookresearch/faiss/blob/main/INSTALL.md#step-1-invoking-cmake
