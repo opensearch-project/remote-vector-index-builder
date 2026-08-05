@@ -23,7 +23,7 @@ class TestIVFPQSearchCagraConfig:
         return {"n_probes": 40}
 
     def test_default_initialization(self, default_config):
-        assert default_config.n_probes == 20
+        assert default_config.n_probes == 5
 
     def test_custom_initialization(self, custom_params):
         config = IVFPQSearchCagraConfig(**custom_params)
@@ -35,7 +35,7 @@ class TestIVFPQSearchCagraConfig:
             (-1, True),  # Negative value
             (0, True),  # Zero value
             (1, False),  # Valid minimum value
-            (20, False),  # Default value
+            (5, False),  # Default value
             (100, False),  # Large value
         ],
     )
@@ -62,7 +62,7 @@ class TestIVFPQSearchCagraConfig:
     def test_from_dict_empty(self):
         config = IVFPQSearchCagraConfig.from_dict(None)
         assert isinstance(config, IVFPQSearchCagraConfig)
-        assert config.n_probes == 20  # default value
+        assert config.n_probes == 5  # default value
 
     def test_from_dict_custom(self, custom_params):
         config = IVFPQSearchCagraConfig.from_dict(custom_params)

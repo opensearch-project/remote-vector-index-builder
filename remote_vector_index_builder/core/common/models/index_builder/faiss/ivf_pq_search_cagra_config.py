@@ -15,7 +15,7 @@ class IVFPQSearchCagraConfig:
     """Configuration class for IVF-PQ GPU Cagra Index Search params"""
 
     # The number of clusters to search.
-    n_probes: int = 20
+    n_probes: int = 5
 
     def to_faiss_config(self) -> faiss.IVFPQSearchCagraConfig:
         """
