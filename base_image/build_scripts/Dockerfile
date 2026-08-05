@@ -10,8 +10,11 @@ RUN apt-get update && apt-get upgrade -y \
 RUN useradd -m appuser
 
 # Install miniconda
+# Pin the Miniconda installer version. The "latest" installer periodically ships
+# a newer conda that breaks this build (e.g. a PluginError during conda install),
+# Pinning keeps the base image build reproducible; bump this deliberately when upgrading conda.
 ENV CONDA_DIR /opt/conda
-RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh && \
+RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-py311_26.1.1-1-Linux-x86_64.sh -O ~/miniconda.sh && \
     /bin/bash ~/miniconda.sh -b -p /opt/conda
 
 RUN chown -R appuser:appuser /opt

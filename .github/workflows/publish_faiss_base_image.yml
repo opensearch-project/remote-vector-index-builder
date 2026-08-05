@@ -12,6 +12,12 @@ permissions:
   id-token: write
   contents: read
 
+# Serialize image-publishing pipelines so a base-image cascade and a core/app
+# push can never publish out of order or race for the shared snapshot tags.
+concurrency:
+  group: publish-snapshot-images
+  cancel-in-progress: false
+
 jobs:
   build-and-publish-faiss-base-image:
     name: Build and Publish Remote-Vector-Index-Builder Faiss Base Snapshot Image
@@ -28,9 +34,12 @@ jobs:
             path: 'rvib'
 
       - name: Build Docker Image
+        # --pull forces Docker to fetch the latest nvidia/cuda base image from
+        # the registry instead of reusing a stale, locally-cached layer on the
+        # self-hosted runner
         run : |
             cd rvib
-            docker build  -f ./base_image/build_scripts/Dockerfile . -t opensearchstaging/remote-vector-index-builder:faiss-base-snapshot
+            docker build --pull -f ./base_image/build_scripts/Dockerfile . -t opensearchstaging/remote-vector-index-builder:faiss-base-snapshot
       
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4

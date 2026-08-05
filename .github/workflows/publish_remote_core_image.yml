@@ -5,8 +5,14 @@ on:
     branches:
       - main
     paths:
+      # This workflow owns building both the core image and (via the cascade
+      # below) the api image. app/** is included here so that app-only changes
+      # rebuild core and then api in a single ordered pipeline, rather than via
+      # a separate, unordered api workflow. 
       - 'remote_vector_index_builder/core/**'
+      - 'remote_vector_index_builder/app/**'
       - '.github/workflows/publish_remote_core_image.yml'
+      - '.github/workflows/publish_remote_api_image.yml'
 
   workflow_call: # enables workflow to be reused
     secrets:
@@ -18,6 +24,12 @@ on:
 permissions:
   id-token: write
   contents: read
+
+# Serialize image-publishing pipelines so a base-image cascade and a core/app
+# push can never publish out of order or race for the shared snapshot tags.
+concurrency:
+  group: publish-snapshot-images
+  cancel-in-progress: false
 
 jobs:
   build-and-publish-core-image:
@@ -32,8 +44,11 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Build Docker Image
+        # --pull forces Docker to fetch the latest faiss-base-snapshot base image
+        # from the registry instead of reusing a stale, locally-cached layer on
+        # the self-hosted runner. 
         run : |
-          docker build  -f ./remote_vector_index_builder/core/Dockerfile . -t opensearchstaging/remote-vector-index-builder:core-snapshot
+          docker build --pull -f ./remote_vector_index_builder/core/Dockerfile . -t opensearchstaging/remote-vector-index-builder:core-snapshot
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4

@@ -119,20 +119,20 @@ docker build  -f ./base_image/build_scripts/Dockerfile . -t opensearchstaging/re
 
 ### Core Image
 The path [`/remote-vector-index-builder/core`](./remote_vector_index_builder/core/) contains the code for the `core` image.
-Run the below command to create the `core` image:
+Run the below command to create the `core` image. The `BASE_IMAGE_TAG` build arg must match the tag of the `faiss-base` image you built above (the Dockerfile defaults to `faiss-base-snapshot`):
 
 ```
-docker build  -f ./remote_vector_index_builder/core/Dockerfile . -t opensearchstaging/remote-vector-index-builder:core-latest
+docker build  -f ./remote_vector_index_builder/core/Dockerfile . --build-arg BASE_IMAGE_TAG=faiss-base-latest -t opensearchstaging/remote-vector-index-builder:core-latest
 ```
 
 The image can be built on any type of machine with `docker` installed
 
 ### API Image
 The path [`/remote-vector-index-builder/app`](./remote_vector_index_builder/app/) contains the code for the `api` image. 
-Run the below command to create `api` image. 
+Run the below command to create `api` image. The `CORE_IMAGE_TAG` build arg must match the tag of the `core` image you built above (the Dockerfile defaults to `core-snapshot`): 
 
 ```
-docker build  -f ./remote_vector_index_builder/app/Dockerfile . -t opensearchstaging/remote-vector-index-builder:api-latest
+docker build  -f ./remote_vector_index_builder/app/Dockerfile . --build-arg CORE_IMAGE_TAG=core-latest -t opensearchstaging/remote-vector-index-builder:api-latest
 ```
 
 The image can be built on any type of machine with `docker` installed

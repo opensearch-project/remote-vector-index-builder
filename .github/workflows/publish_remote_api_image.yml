@@ -1,13 +1,11 @@
 name: Build and Publish Remote-Vector-Index-Builder API Image to Docker
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'remote_vector_index_builder/app/**'
-      - '.github/workflows/publish_remote_api_image.yml'
-
+  # NOTE: This workflow is intentionally NOT triggered directly on push.
+  # The API image is built via the base -> core -> api cascade started by
+  # publish_remote_core_image.yml (which triggers on both core/** and app/**
+  # changes). This guarantees the API image is always built on top of a
+  # freshly-published core image, in a single strictly-ordered pipeline.
   workflow_call: # enables workflow to be reused
     secrets:
       REMOTE_VECTOR_DOCKER_USERNAME:
@@ -32,8 +30,11 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Build Docker Image
+        # --pull forces Docker to fetch the latest core-snapshot base image from
+        # the registry instead of reusing a stale, locally-cached layer on the
+        # self-hosted runner
         run : |
-          docker build  -f ./remote_vector_index_builder/app/Dockerfile . -t opensearchstaging/remote-vector-index-builder:api-snapshot
+          docker build --pull -f ./remote_vector_index_builder/app/Dockerfile . -t opensearchstaging/remote-vector-index-builder:api-snapshot
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
