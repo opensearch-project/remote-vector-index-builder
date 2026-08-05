@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000001 Mon Sep 17 00:00:00 2001
+From: RVIB Maintainers <noreply@opensearch.org>
+Date: Tue, 05 Aug 2026 00:00:00 +0000
+Subject: [PATCH] Do not auto-widen intermediate_graph_degree when equal to
+ graph_degree
+
+CuvsCagra::train() silently bumps intermediate_graph_degree to
+1.5 * graph_degree whenever a caller requests them equal, on the
+assumption that IVF_PQ-based CAGRA construction needs headroom to
+prune from. Once RVIB requests graph_degree == intermediate_graph_degree
+by design (see the companion RVIB core change), this guard means every
+build silently gets a wider, more expensive intermediate graph than
+requested (e.g. m=16 -> 64/64 becomes 64/96), which is exactly the
+build-time regression RVIB is trying to avoid.
+
+Benchmarked on g5.8xlarge: with this guard removed, 64/64 build time
+lands within 1-30% of the previous default across sift/gist/cohere-768-l2/
+open-ai-1536 (1M) and cohere-10M, at meaningfully improved recall@100
+(e.g. +0.05-0.08 on gist and cohere-768-l2 at n_probes=20) -- see
+https://github.com/opensearch-project/remote-vector-index-builder/issues/144
+for the full comparison against 64/96 and 64/128.
+
+---
+ faiss/gpu/impl/CuvsCagra.cu | 5 -----
+ 1 file changed, 5 deletions(-)
+
+diff --git a/faiss/gpu/impl/CuvsCagra.cu b/faiss/gpu/impl/CuvsCagra.cu
+index 6ff3419b..7cce4478 100644
+--- a/faiss/gpu/impl/CuvsCagra.cu
++++ b/faiss/gpu/impl/CuvsCagra.cu
+@@ -190,11 +190,6 @@ void CuvsCagra<data_t>::train(idx_t n, const data_t* x) {
+         graph_build_params.search_params = ivf_pq_search_params_.value();
+         graph_build_params.refinement_rate = refine_rate_.value();
+         index_params_.graph_build_params = graph_build_params;
+-        if (index_params_.graph_degree ==
+-            index_params_.intermediate_graph_degree) {
+-            index_params_.intermediate_graph_degree =
+-                    1.5 * index_params_.graph_degree;
+-        }
+     } else {
+         cuvs::neighbors::cagra::graph_build_params::nn_descent_params
+                 graph_build_params(index_params_.intermediate_graph_degree);

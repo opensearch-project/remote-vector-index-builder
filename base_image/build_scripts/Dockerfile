@@ -23,6 +23,7 @@ RUN mkdir /tmp/faiss
 COPY ./base_image/faiss /tmp/faiss
 COPY ./base_image/patches /tmp/patches
 RUN cd /tmp/faiss && patch -p1 < /tmp/patches/0001-Skip-copying-vectors-to-flat-storage-during-CAGRA-to.patch
+RUN cd /tmp/faiss && patch -p1 < /tmp/patches/0002-Do-not-auto-widen-intermediate_graph_degree-when-eq.patch
 COPY ./base_image/build_scripts/build-faiss.sh /tmp/build-faiss.sh
 
 RUN chown -R appuser:appuser /tmp
