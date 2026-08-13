@@ -19,11 +19,12 @@ cmake -B build \
     -DFAISS_OPT_LEVEL=generic \
     -DFAISS_ENABLE_C_API=OFF \
     -DFAISS_ENABLE_PYTHON=ON \
-    -DPYTHON_EXECUTABLE=$CONDA/bin/python \
+    -DPYTHON_EXECUTABLE="${CONDA_DIR}/bin/python" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_CUDA_ARCHITECTURES="${CUDA_ARCHS}" \
     -DFAISS_ENABLE_CUVS=ON \
-    -DCUDAToolkit_ROOT="/usr/local/cuda/lib64" \
+    -DCMAKE_CUDA_COMPILER="${CONDA_DIR}/bin/nvcc" \
+    -DCUDAToolkit_ROOT="${CONDA_DIR}" \
     .
 
 # Step 2 : Invoke Make
