@@ -49,7 +49,10 @@ def run_e2e_index_builder(config_path: str = "e2e/api/test-datasets.yml"):
                 "container_name": bucket,
                 "dimension": dataset_config["dimension"],
                 "doc_count": dataset_config["num_vectors"],
-                "data_type": DataType.FLOAT,
+                # request data type defaults to float; half_float datasets set it explicitly
+                "data_type": DataType(
+                    dataset_config.get("request_data_type", DataType.FLOAT.value)
+                ),
                 "repository_type": ObjectStoreType.S3,
                 "engine": Engine.FAISS,
             }
@@ -121,33 +124,41 @@ def run_e2e_index_builder(config_path: str = "e2e/api/test-datasets.yml"):
         except s3_client.exceptions.BucketAlreadyExists:
             logger.info(f"Using existing bucket: {bucket}")
 
-        # Process datasets in parallel
+        # Datasets within a group run in parallel; groups run one after another, so the peak
+        # load on the runner is bounded by the largest group rather than by every dataset at once
         all_metrics = {}
+        all_succeeded = True
         total_start_time = time.time()
 
-        with ThreadPoolExecutor() as executor:
-            # Submit all dataset processing tasks to the executor
-            future_to_dataset = {
-                executor.submit(process_dataset, dataset_name): dataset_name
-                for dataset_name in dataset_generator.config["datasets"]
-            }
+        datasets = dataset_generator.config["datasets"]
+        groups = list(
+            dict.fromkeys(cfg.get("group", "default") for cfg in datasets.values())
+        )
+        for group in groups:
+            logger.info(f"\n=== Processing dataset group: {group} ===")
+            with ThreadPoolExecutor() as executor:
+                # Submit this group's dataset processing tasks to the executor
+                future_to_dataset = {
+                    executor.submit(process_dataset, dataset_name): dataset_name
+                    for dataset_name, cfg in datasets.items()
+                    if cfg.get("group", "default") == group
+                }
 
-            # Process results as they complete
-            all_succeeded = True
-            for future in as_completed(future_to_dataset):
-                dataset_name = future_to_dataset[future]
-                try:
-                    ds_name, success, result = future.result()
-                    if success:
-                        all_metrics[ds_name] = result
-                    else:
+                # Process results as they complete
+                for future in as_completed(future_to_dataset):
+                    dataset_name = future_to_dataset[future]
+                    try:
+                        ds_name, success, result = future.result()
+                        if success:
+                            all_metrics[ds_name] = result
+                        else:
+                            all_succeeded = False
+                            logger.error(f"Dataset {ds_name} failed: {result}")
+                    except Exception as e:
                         all_succeeded = False
-                        logger.error(f"Dataset {ds_name} failed: {result}")
-                except Exception as e:
-                    all_succeeded = False
-                    logger.exception(
-                        f"Exception processing dataset {dataset_name}: {str(e)}"
-                    )
+                        logger.exception(
+                            f"Exception processing dataset {dataset_name}: {str(e)}"
+                        )
 
         total_execution_time = time.time() - total_start_time
         logger.info(f"Total parallel execution time: {total_execution_time:.2f}s")

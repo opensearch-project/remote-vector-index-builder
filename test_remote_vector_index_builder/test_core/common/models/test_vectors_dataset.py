@@ -44,6 +44,7 @@ def test_free_vectors_space_when_vectors_and_doc_ids_already_deleted(vectors_dat
     "dtype, expected",
     [
         (DataType.FLOAT, "<f4"),
+        (DataType.FLOAT16, "<f2"),
         (DataType.BYTE, "<i1"),
         (DataType.BINARY, "<u1"),
     ],
@@ -78,6 +79,10 @@ def test_parse_valid_byte_data(sample_byte_vectors, sample_doc_ids):
 
 def test_parse_valid_binary_data(sample_binary_vectors, sample_doc_ids):
     _do_test_parse_valid_data(sample_binary_vectors, sample_doc_ids, DataType.BINARY)
+
+
+def test_parse_valid_fp16_data(sample_fp16_vectors, sample_doc_ids):
+    _do_test_parse_valid_data(sample_fp16_vectors, sample_doc_ids, DataType.FLOAT16)
 
 
 def _do_test_parse_valid_data(sample_vectors, sample_doc_ids, vector_dtype):
@@ -152,6 +157,7 @@ def _do_test_parse_invalid_doc_count(vector_dtype, numpy_dtype):
     "vector_dtype, numpy_dtype",
     [
         (DataType.FLOAT, "<f4"),
+        (DataType.FLOAT16, "<f2"),
         (DataType.BYTE, "<i1"),
     ],
 )
@@ -192,6 +198,7 @@ def test_parse_invalid_binary_vector_dimensions(num_docs):
     "vector_dtype, numpy_dtype",
     [
         (DataType.FLOAT, "<f4"),
+        (DataType.FLOAT16, "<f2"),
         (DataType.BYTE, "<i1"),
         (DataType.BINARY, "<u1"),
     ],

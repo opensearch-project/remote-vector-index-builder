@@ -1,5 +1,6 @@
 datasets:
   test-dataset-128:
+    group: float
     dimension: 128
     num_vectors: 1_000_000
     num_queries: 10_000
@@ -11,6 +12,7 @@ datasets:
       normalize: true
 
   test-dataset-384:
+    group: float
     dimension: 384
     num_vectors: 1_000_000
     num_queries: 50_000
@@ -22,6 +24,7 @@ datasets:
       normalize: true
 
   test-dataset-768:
+    group: float
     dimension: 768
     num_vectors: 1_000_000
     num_queries: 10_000
@@ -30,6 +33,35 @@ datasets:
       type: normal
       mean: 0.0
       std: 0.1
+      normalize: true
+
+  # half_float field: uploaded as fp16 (2 bytes/value), read directly by the service
+  test-dataset-half-float-fp16:
+    group: half_float
+    dimension: 128
+    num_vectors: 100_000
+    num_queries: 1_000
+    data_type: float16
+    request_data_type: half_float
+    distribution:
+      type: normal
+      mean: 0.0
+      std: 1.0
+      normalize: true
+
+  # float field with the fp16 scalar quantizer: uploaded as fp32 under data_type half_float,
+  # converted to fp16 by the service
+  test-dataset-half-float-fp32:
+    group: half_float
+    dimension: 128
+    num_vectors: 100_000
+    num_queries: 1_000
+    data_type: float32
+    request_data_type: half_float
+    distribution:
+      type: normal
+      mean: 0.0
+      std: 1.0
       normalize: true
 
 generation:

@@ -246,6 +246,31 @@ def test_read_blob_success(index_build_parameters, object_store_config, bytes_bu
         )
 
 
+def test_get_blob_size_success(index_build_parameters, object_store_config):
+    with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
+        store = S3ObjectStore(index_build_parameters, object_store_config)
+        store.s3_client.head_object = Mock(return_value={"ContentLength": 1234})
+
+        assert store.get_blob_size("test/path") == 1234
+        store.s3_client.head_object.assert_called_once_with(
+            Bucket=store.bucket, Key="test/path"
+        )
+
+
+def test_get_blob_size_client_error_returns_none(
+    index_build_parameters, object_store_config
+):
+    with patch("core.object_store.s3.s3_object_store.get_boto3_client"):
+        store = S3ObjectStore(index_build_parameters, object_store_config)
+        store.s3_client.head_object = Mock(
+            side_effect=ClientError(
+                {"Error": {"Code": "403", "Message": "Forbidden"}}, "HeadObject"
+            )
+        )
+
+        assert store.get_blob_size("test/path") is None
+
+
 def test_read_blob_with_debug(
     index_build_parameters, object_store_config, bytes_buffer
 ):

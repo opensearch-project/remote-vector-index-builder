@@ -6,7 +6,7 @@
 # compatible open source license.
 
 from abc import ABC, abstractmethod
-from typing import Union
+from typing import Optional, Union
 from io import BytesIO
 
 
@@ -36,6 +36,24 @@ class ObjectStore(ABC):
         Note:
             - The bytes_buffer should be properly initialized before passing to this method
             - Caller is also responsible for cleaning up the bytes buffer
+            - Implementations should handle any necessary authentication and error handling
+        """
+        pass
+
+    @abstractmethod
+    def get_blob_size(self, remote_store_path: str) -> Optional[int]:
+        """
+        Returns the size in bytes of the blob at remote_store_path, without downloading it
+
+        Args:
+            remote_store_path (str): The path/key to the remote object
+
+        Returns:
+            Optional[int]: The size of the blob in bytes, or None if it cannot be determined
+                (for example, missing permission for a metadata request). Callers must not fail
+                the build on None; the download itself still reports real errors.
+
+        Note:
             - Implementations should handle any necessary authentication and error handling
         """
         pass

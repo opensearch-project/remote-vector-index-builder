@@ -11,7 +11,7 @@ import os
 import sys
 import threading
 from functools import cache
-from typing import Any, Dict, Union
+from typing import Any, Dict, Optional, Union
 from io import BytesIO
 
 import boto3
@@ -279,6 +279,24 @@ class S3ObjectStore(ObjectStore):
             raise BlobError(f"Error calling boto3.download_fileobj: {e}") from e
         except ClientError as e:
             raise BlobError(f"Error downloading file: {e}") from e
+
+    def get_blob_size(self, remote_store_path: str) -> Optional[int]:
+        """
+        Returns the size in bytes of the S3 object at remote_store_path, via a HEAD request.
+
+        Returns None instead of raising if the HEAD request fails, so a build is never blocked on
+        object metadata alone; the subsequent download reports any real access problem.
+        """
+        try:
+            head_obj_response = self.s3_client.head_object(
+                Bucket=self.bucket, Key=remote_store_path
+            )
+            return head_obj_response["ContentLength"]
+        except ClientError as e:
+            logger.warning(
+                f"Could not read size of {remote_store_path}, deciding layout after download: {e}"
+            )
+            return None
 
     def get_kms_key(self, remote_store_path: str) -> None:
         """
