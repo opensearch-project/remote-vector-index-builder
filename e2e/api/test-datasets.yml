@@ -64,6 +64,20 @@ datasets:
       std: 1.0
       normalize: true
 
+  # fewer vectors than the default m * 4 graph degree can be built from: exercises the
+  # lowered-m path for small builds, like the small flush segments k-NN can send
+  test-dataset-small:
+    group: small
+    dimension: 128
+    num_vectors: 150
+    num_queries: 100
+    data_type: float32
+    distribution:
+      type: normal
+      mean: 0.0
+      std: 1.0
+      normalize: true
+
 generation:
   batch_size: 100_000
   seed: 42

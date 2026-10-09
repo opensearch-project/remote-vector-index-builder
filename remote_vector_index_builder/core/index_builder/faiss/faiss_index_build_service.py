@@ -17,8 +17,13 @@ from core.common.models.index_builder.faiss import (
     FaissIndexHNSWCagraBuilder,
 )
 from core.index_builder.index_builder_utils import (
+    GRAPH_DEGREE_PER_M,
+    calculate_effective_m,
     calculate_ivf_pq_n_lists,
     get_omp_num_threads,
+)
+from core.common.models.index_builder.faiss.ivf_pq_search_cagra_config import (
+    IVFPQSearchCagraConfig,
 )
 from core.common.models.index_build_parameters import DataType
 from core.common.models.index_builder import (
@@ -43,6 +48,28 @@ class FaissIndexBuildService(IndexBuildService):
     def __init__(self):
         self.omp_num_threads = get_omp_num_threads()
         self.PQ_DIM_COMPRESSION_FACTOR = 4
+
+    def _effective_m(
+        self, index_build_parameters: IndexBuildParameters, n_lists: int
+    ) -> int:
+        """
+        The m to build the CAGRA graph with: the requested m, lowered when the dataset cannot
+        supply m * GRAPH_DEGREE_PER_M neighbors per vector (see calculate_effective_m).
+        """
+        requested_m = index_build_parameters.index_parameters.algorithm_parameters.m
+        effective_m = calculate_effective_m(
+            requested_m,
+            index_build_parameters.doc_count,
+            n_lists,
+            IVFPQSearchCagraConfig.n_probes,
+        )
+        if effective_m != requested_m:
+            logger.info(
+                f"Using m={effective_m} instead of m={requested_m} for vector path "
+                f"{index_build_parameters.vector_path}: doc_count="
+                f"{index_build_parameters.doc_count} is too small for the requested graph degree"
+            )
+        return effective_m
 
     def build_index(
         self,
@@ -74,28 +101,26 @@ class FaissIndexBuildService(IndexBuildService):
             # Step 1a: Create a structured GPUIndexConfig having defaults,
             # from a partial dictionary set from index build params
             if index_build_parameters.data_type != DataType.BINARY:
+                n_lists = calculate_ivf_pq_n_lists(index_build_parameters.doc_count)
+                m = self._effective_m(index_build_parameters, n_lists)
                 gpu_index_config_params = {
                     "ivf_pq_params": {
-                        "n_lists": calculate_ivf_pq_n_lists(
-                            index_build_parameters.doc_count
-                        ),
+                        "n_lists": n_lists,
                         "pq_dim": int(
                             index_build_parameters.dimension
                             / self.PQ_DIM_COMPRESSION_FACTOR
                         ),
                     },
-                    "graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
-                    * 4,
-                    "intermediate_graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
-                    * 4,
+                    "graph_degree": m * GRAPH_DEGREE_PER_M,
+                    "intermediate_graph_degree": m * GRAPH_DEGREE_PER_M,
                 }
             else:
                 gpu_index_config_params = {
                     "graph_build_algo": CagraGraphBuildAlgo.NN_DESCENT,
                     "graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
-                    * 4,
+                    * GRAPH_DEGREE_PER_M,
                     "intermediate_graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
-                    * 4,
+                    * GRAPH_DEGREE_PER_M,
                 }
 
             faiss_gpu_index_cagra_builder = FaissGPUIndexCagraBuilder.from_dict(

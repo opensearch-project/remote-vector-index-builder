@@ -15,7 +15,14 @@ from core.common.models.index_build_parameters import DataType
 from core.common.models.index_builder import CagraGraphBuildAlgo
 from core.common.models.index_builder.faiss import FaissGPUIndexCagraBuilder
 from core.index_builder.faiss.faiss_index_build_service import FaissIndexBuildService
-from core.index_builder.index_builder_utils import calculate_ivf_pq_n_lists
+from core.common.models.index_builder.faiss.ivf_pq_search_cagra_config import (
+    IVFPQSearchCagraConfig,
+)
+from core.index_builder.index_builder_utils import (
+    GRAPH_DEGREE_PER_M,
+    calculate_effective_m,
+    calculate_ivf_pq_n_lists,
+)
 from core.common.models.index_builder.faiss import FaissIndexHNSWCagraBuilder
 
 
@@ -126,28 +133,31 @@ class TestFaissIndexBuildService:
 
     def _get_expected_gpu_params(self, service, index_build_parameters):
         if index_build_parameters.data_type != DataType.BINARY:
+            n_lists = calculate_ivf_pq_n_lists(index_build_parameters.doc_count)
+            effective_m = calculate_effective_m(
+                index_build_parameters.index_parameters.algorithm_parameters.m,
+                index_build_parameters.doc_count,
+                n_lists,
+                IVFPQSearchCagraConfig.n_probes,
+            )
             return {
                 "ivf_pq_params": {
-                    "n_lists": calculate_ivf_pq_n_lists(
-                        index_build_parameters.doc_count
-                    ),
+                    "n_lists": n_lists,
                     "pq_dim": int(
                         index_build_parameters.dimension
                         / service.PQ_DIM_COMPRESSION_FACTOR
                     ),
                 },
-                "graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
-                * 4,
-                "intermediate_graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
-                * 4,
+                "graph_degree": effective_m * GRAPH_DEGREE_PER_M,
+                "intermediate_graph_degree": effective_m * GRAPH_DEGREE_PER_M,
             }
         else:
             return {
                 "graph_build_algo": CagraGraphBuildAlgo.NN_DESCENT,
                 "graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
-                * 4,
+                * GRAPH_DEGREE_PER_M,
                 "intermediate_graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
-                * 4,
+                * GRAPH_DEGREE_PER_M,
             }
 
     def test_build_index_gpu_creation_error(
