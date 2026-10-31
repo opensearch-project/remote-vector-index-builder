@@ -358,6 +358,127 @@ class TestFaissIndexBuildService:
             cpu_call_args = mock_cpu_from_dict.call_args[0][0]
             assert cpu_call_args["skip_stored_vectors"] is True
 
+    @staticmethod
+    def _with_projection(index_build_parameters, enabled=True):
+        """Copy of the request with algorithm_parameters.project_link_to_base_layer set"""
+        params = index_build_parameters.model_copy(deep=True)
+        params.index_parameters.algorithm_parameters.project_link_to_base_layer = (
+            enabled
+        )
+        return params
+
+    @staticmethod
+    def _track_gpu_copyTo():
+        """Patches GpuIndexCagra.copyTo to record (skip_storage, *projection args) per call"""
+        calls = []
+        original_copyTo = faiss.GpuIndexCagra.copyTo
+
+        def tracking_copyTo(gpu_index, cpu_index, skip_storage=False, *rest):
+            calls.append((skip_storage, *rest))
+            return original_copyTo(gpu_index, cpu_index, skip_storage, *rest)
+
+        return calls, patch.object(faiss.GpuIndexCagra, "copyTo", tracking_copyTo)
+
+    def test_project_link_to_base_layer_defaults_to_false(self, index_build_parameters):
+        """The API parameter is opt-in"""
+        assert (
+            index_build_parameters.index_parameters.algorithm_parameters.project_link_to_base_layer
+            is False
+        )
+
+    def test_project_link_to_base_layer_parsed_from_request(
+        self, index_build_parameters
+    ):
+        """project_link_to_base_layer is accepted next to m in algorithm_parameters"""
+        from core.common.models import IndexBuildParameters
+
+        request = index_build_parameters.model_dump(mode="json")
+        request["index_parameters"]["algorithm_parameters"][
+            "project_link_to_base_layer"
+        ] = True
+        parsed = IndexBuildParameters.model_validate(request)
+        assert (
+            parsed.index_parameters.algorithm_parameters.project_link_to_base_layer
+            is True
+        )
+
+    @pytest.mark.parametrize(
+        "dataset_fixture,params_fixture",
+        [
+            ("vectors_dataset", "index_build_parameters"),
+            ("byte_vectors_dataset", "byte_index_build_parameters"),
+            ("fp16_vectors_dataset", "byte_index_build_parameters"),
+        ],
+    )
+    def test_build_index_passes_project_link_to_base_layer(
+        self, service, request, dataset_fixture, params_fixture
+    ):
+        """The request flag and the effective m reach the CPU index builder"""
+        vectors_dataset = request.getfixturevalue(dataset_fixture)
+        index_build_parameters = self._with_projection(
+            request.getfixturevalue(params_fixture)
+        )
+        with patch(
+            "core.common.models.index_builder.faiss.FaissIndexHNSWCagraBuilder.from_dict",
+            wraps=FaissIndexHNSWCagraBuilder.from_dict,
+        ) as mock_cpu_from_dict:
+            service.build_index(index_build_parameters, vectors_dataset)
+
+            cpu_call_args = mock_cpu_from_dict.call_args[0][0]
+            assert cpu_call_args["project_link_to_base_layer"] is True
+            # the m the CAGRA graph was built with
+            n_lists = calculate_ivf_pq_n_lists(index_build_parameters.doc_count)
+            assert cpu_call_args["m"] == calculate_effective_m(
+                index_build_parameters.index_parameters.algorithm_parameters.m,
+                index_build_parameters.doc_count,
+                n_lists,
+                IVFPQSearchCagraConfig.n_probes,
+            )
+
+    def test_build_index_without_flag_does_not_project(
+        self, service, vectors_dataset, index_build_parameters
+    ):
+        """Without project_link_to_base_layer, build_index uses the plain copyTo"""
+        calls, patcher = self._track_gpu_copyTo()
+        with patcher:
+            service.build_index(index_build_parameters, vectors_dataset)
+
+        assert len(calls) == 1
+        assert len(calls[0]) == 1  # skip_storage only: no projection params
+
+    def test_build_index_with_flag_calls_projection_copyTo(
+        self, service, vectors_dataset, index_build_parameters
+    ):
+        """End to end through build_index: copyTo receives the projection params"""
+        calls, patcher = self._track_gpu_copyTo()
+        with patcher:
+            service.build_index(
+                self._with_projection(index_build_parameters), vectors_dataset
+            )
+
+        assert len(calls) == 1
+        skip_storage, params, stats = calls[0]
+        assert skip_storage is False
+        assert isinstance(params, faiss.CagraUpperLevelProjectionParams)
+        assert params.M > 0
+        assert isinstance(stats, faiss.CagraUpperLevelProjectionStats)
+
+    def test_build_binary_index_ignores_project_link_to_base_layer(
+        self, service, binary_vectors_dataset, binary_index_build_parameters
+    ):
+        """Binary builds never project, even when the request asks for it"""
+        with patch(
+            "core.common.models.index_builder.faiss.FaissIndexHNSWCagraBuilder.from_dict",
+            wraps=FaissIndexHNSWCagraBuilder.from_dict,
+        ) as mock_cpu_from_dict:
+            service.build_index(
+                self._with_projection(binary_index_build_parameters),
+                binary_vectors_dataset,
+            )
+
+            cpu_call_args = mock_cpu_from_dict.call_args[0][0]
+            assert cpu_call_args["project_link_to_base_layer"] is False
+
     def test_write_cpu_index_skip_stored_vectors_passes_io_flag(
         self,
         service,

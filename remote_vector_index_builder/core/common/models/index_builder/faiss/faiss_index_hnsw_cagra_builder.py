@@ -43,6 +43,26 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
 
     skip_stored_vectors: bool = False
 
+    # When set to true (and base_level_only is true), copyTo also builds an
+    # HNSW layer 1 over a promoted subset of the vectors and projects its links
+    # into the base level, so graphs of well-separated clusters stay connected
+    # (faiss patch 0004: GpuIndexCagra::copyTo(..., CagraUpperLevelProjectionParams)).
+    # The index stays base-level only. Not supported for binary vectors.
+    project_link_to_base_layer: bool = False
+
+    # HNSW m of the index; required when project_link_to_base_layer is true. Layer 1 is
+    # built like an HNSW with 2 * m links per node and promotion probability 1 / (2 * m).
+    m: int = 0
+
+    # efConstruction of the layer-1 build; 0 = ef_construction
+    upper_level_ef_construction: int = 0
+
+    # Max share of a full base-level row that may be overwritten by projected links
+    upper_level_max_share: float = 0.5
+
+    # Never overwrite a node's last base-level in-edge
+    upper_level_protect_last_in_edge: bool = True
+
     @classmethod
     def from_dict(
         cls, params: Dict[str, Any] | None = None
@@ -61,6 +81,19 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
 
         return cls(**params)
 
+    def _upper_level_projection_params(self):
+        """Builds the faiss.CagraUpperLevelProjectionParams for copyTo from this config."""
+        if self.m <= 0:
+            raise ValueError(
+                "FaissIndexHNSWCagraBuilder: m must be positive when project_link_to_base_layer is true"
+            )
+        params = faiss.CagraUpperLevelProjectionParams()
+        params.M = self.m
+        params.ef_construction = self.upper_level_ef_construction
+        params.max_share = self.upper_level_max_share
+        params.protect_last_in_edge = self.upper_level_protect_last_in_edge
+        return params
+
     def _do_convert_gpu_to_cpu_index(
         self, faiss_gpu_build_index_output: FaissGpuBuildIndexOutput
     ):
@@ -74,7 +107,30 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
             cpu_index.base_level_only = self.base_level_only
 
             # Copy GPU index to CPU index
-            if self.skip_stored_vectors:
+            if self.project_link_to_base_layer and not self.base_level_only:
+                logger.warning(
+                    "project_link_to_base_layer is only supported with base_level_only=True; "
+                    "copying without projection"
+                )
+            if self.project_link_to_base_layer and self.base_level_only:
+                stats = faiss.CagraUpperLevelProjectionStats()
+                faiss_gpu_build_index_output.gpu_index.copyTo(
+                    cpu_index,
+                    self.skip_stored_vectors,
+                    self._upper_level_projection_params(),
+                    stats,
+                )
+                logger.debug(
+                    f"Upper-level projection: promoted={stats.promoted} "
+                    f"added_by_overwrite={stats.added_by_overwrite} "
+                    f"added_into_empty={stats.added_into_empty} "
+                    f"skipped_cap={stats.skipped_cap} "
+                    f"protected_slots_skipped={stats.protected_slots_skipped} "
+                    f"in_degree0={stats.in_degree0_before}->{stats.in_degree0_after} "
+                    f"layer1_build_ms={stats.layer1_build_ms:.1f} "
+                    f"projection_ms={stats.projection_ms:.1f}"
+                )
+            elif self.skip_stored_vectors:
                 logger.debug(
                     "skip_stored_vectors=True: skipping vector storage during copyTo"
                 )

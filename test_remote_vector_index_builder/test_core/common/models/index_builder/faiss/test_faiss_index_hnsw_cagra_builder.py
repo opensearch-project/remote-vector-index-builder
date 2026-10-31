@@ -196,3 +196,166 @@ class TestFaissIndexHNSWCagraBuilder:
 
         assert len(copy_calls) == 1
         assert copy_calls[0] is False
+
+    @staticmethod
+    def _track_copyTo(gpu_index):
+        """Replaces gpu_index.copyTo with a wrapper that records every call's arguments"""
+        calls = []
+        original_copyTo = gpu_index.copyTo
+
+        def tracking_copyTo(cpu_index, skip_storage=False, *rest):
+            calls.append((cpu_index, skip_storage, *rest))
+            return original_copyTo(cpu_index, skip_storage, *rest)
+
+        gpu_index.copyTo = tracking_copyTo
+        return calls
+
+    def test_upper_level_projection_defaults(self, default_builder):
+        assert default_builder.project_link_to_base_layer is False
+        assert default_builder.m == 0
+        assert default_builder.upper_level_ef_construction == 0
+        assert default_builder.upper_level_max_share == 0.5
+        assert default_builder.upper_level_protect_last_in_edge is True
+
+    def test_upper_level_projection_from_dict(self):
+        builder = FaissIndexHNSWCagraBuilder.from_dict(
+            {"project_link_to_base_layer": True, "m": 16}
+        )
+        assert builder.project_link_to_base_layer is True
+        assert builder.m == 16
+        assert builder.upper_level_max_share == 0.5  # default value
+
+    def test_upper_level_projection_calls_projection_copyTo(
+        self, mock_gpu_index, mock_index_id_map
+    ):
+        """project_link_to_base_layer=True calls copyTo(cpu_index, skip_storage, params, stats)"""
+        builder = FaissIndexHNSWCagraBuilder(
+            project_link_to_base_layer=True,
+            m=24,
+            upper_level_ef_construction=256,
+            upper_level_max_share=0.25,
+            upper_level_protect_last_in_edge=False,
+        )
+        calls = self._track_copyTo(mock_gpu_index)
+
+        result = builder.convert_gpu_to_cpu_index(
+            FaissGpuBuildIndexOutput(
+                gpu_index=mock_gpu_index, index_id_map=mock_index_id_map
+            )
+        )
+
+        assert len(calls) == 1
+        cpu_index, skip_storage, params, stats = calls[0]
+        assert cpu_index is result.cpu_index
+        assert result.cpu_index.base_level_only is True
+        assert skip_storage is False
+        assert isinstance(params, faiss.CagraUpperLevelProjectionParams)
+        assert params.M == 24
+        assert params.ef_construction == 256
+        assert params.max_share == 0.25
+        assert params.protect_last_in_edge is False
+        assert isinstance(stats, faiss.CagraUpperLevelProjectionStats)
+        assert stats.promoted == 1  # filled in by copyTo
+
+    def test_upper_level_projection_default_params(
+        self, mock_gpu_index, mock_index_id_map
+    ):
+        """Default projection settings are passed through unchanged"""
+        builder = FaissIndexHNSWCagraBuilder(project_link_to_base_layer=True, m=16)
+        calls = self._track_copyTo(mock_gpu_index)
+
+        builder.convert_gpu_to_cpu_index(
+            FaissGpuBuildIndexOutput(
+                gpu_index=mock_gpu_index, index_id_map=mock_index_id_map
+            )
+        )
+
+        params = calls[0][2]
+        assert params.M == 16
+        assert params.ef_construction == 0
+        assert params.max_share == 0.5
+        assert params.protect_last_in_edge is True
+
+    def test_upper_level_projection_with_skip_stored_vectors(
+        self, mock_gpu_index, mock_index_id_map
+    ):
+        """skip_stored_vectors is still passed as skip_storage with the projection overload"""
+        builder = FaissIndexHNSWCagraBuilder(
+            project_link_to_base_layer=True, m=16, skip_stored_vectors=True
+        )
+        calls = self._track_copyTo(mock_gpu_index)
+
+        builder.convert_gpu_to_cpu_index(
+            FaissGpuBuildIndexOutput(
+                gpu_index=mock_gpu_index, index_id_map=mock_index_id_map
+            )
+        )
+
+        assert len(calls) == 1
+        assert calls[0][1] is True
+        assert isinstance(calls[0][2], faiss.CagraUpperLevelProjectionParams)
+
+    def test_upper_level_projection_disabled_uses_plain_copyTo(
+        self, default_builder, mock_gpu_index, mock_index_id_map
+    ):
+        """project_link_to_base_layer=False (default) keeps the original copyTo call"""
+        calls = self._track_copyTo(mock_gpu_index)
+
+        default_builder.convert_gpu_to_cpu_index(
+            FaissGpuBuildIndexOutput(
+                gpu_index=mock_gpu_index, index_id_map=mock_index_id_map
+            )
+        )
+
+        assert len(calls) == 1
+        assert len(calls[0]) == 2  # (cpu_index, skip_storage): no projection params
+
+    def test_upper_level_projection_skipped_without_base_level_only(
+        self, mock_gpu_index, mock_index_id_map
+    ):
+        """Projection requires base_level_only; otherwise the plain copyTo is used"""
+        builder = FaissIndexHNSWCagraBuilder(
+            project_link_to_base_layer=True, base_level_only=False
+        )
+        calls = self._track_copyTo(mock_gpu_index)
+
+        builder.convert_gpu_to_cpu_index(
+            FaissGpuBuildIndexOutput(
+                gpu_index=mock_gpu_index, index_id_map=mock_index_id_map
+            )
+        )
+
+        assert len(calls) == 1
+        assert len(calls[0]) == 2
+
+    def test_upper_level_projection_not_used_for_binary(self):
+        """Binary indexes never use the projection overload"""
+        from core.common.models.index_build_parameters import DataType
+
+        builder = FaissIndexHNSWCagraBuilder(
+            project_link_to_base_layer=True, vector_dtype=DataType.BINARY
+        )
+        mock_gpu_binary_index = faiss.GpuIndexBinaryCagra()
+        calls = self._track_copyTo(mock_gpu_binary_index)
+
+        builder.convert_gpu_to_cpu_index(
+            FaissGpuBuildIndexOutput(
+                gpu_index=mock_gpu_binary_index,
+                index_id_map=faiss.IndexBinaryIDMap(),
+            )
+        )
+
+        assert len(calls) == 1
+        assert len(calls[0]) == 2
+
+    def test_upper_level_projection_requires_m(self, mock_gpu_index, mock_index_id_map):
+        """project_link_to_base_layer=True without a positive m fails the conversion"""
+        builder = FaissIndexHNSWCagraBuilder(project_link_to_base_layer=True)
+
+        with pytest.raises(Exception) as exc_info:
+            builder.convert_gpu_to_cpu_index(
+                FaissGpuBuildIndexOutput(
+                    gpu_index=mock_gpu_index, index_id_map=mock_index_id_map
+                )
+            )
+        assert "m must be positive" in str(exc_info.value)

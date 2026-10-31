@@ -115,12 +115,11 @@ class FaissIndexBuildService(IndexBuildService):
                     "intermediate_graph_degree": m * GRAPH_DEGREE_PER_M,
                 }
             else:
+                m = index_build_parameters.index_parameters.algorithm_parameters.m
                 gpu_index_config_params = {
                     "graph_build_algo": CagraGraphBuildAlgo.NN_DESCENT,
-                    "graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
-                    * GRAPH_DEGREE_PER_M,
-                    "intermediate_graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
-                    * GRAPH_DEGREE_PER_M,
+                    "graph_degree": m * GRAPH_DEGREE_PER_M,
+                    "intermediate_graph_degree": m * GRAPH_DEGREE_PER_M,
                 }
 
             faiss_gpu_index_cagra_builder = FaissGPUIndexCagraBuilder.from_dict(
@@ -145,11 +144,20 @@ class FaissIndexBuildService(IndexBuildService):
 
             # Step 2a: Create a structured CPUIndexConfig having defaults,
             # from a partial dictionary set from index build params
+            algorithm_parameters = (
+                index_build_parameters.index_parameters.algorithm_parameters
+            )
             cpu_index_config_params = {
                 "ef_search": index_build_parameters.index_parameters.algorithm_parameters.ef_search,
                 "ef_construction": index_build_parameters.index_parameters.algorithm_parameters.ef_construction,
                 "vector_dtype": index_build_parameters.data_type,
                 "skip_stored_vectors": index_build_parameters.skip_stored_vectors,
+                # requested through the API (algorithm_parameters, next to m);
+                # GpuIndexBinaryCagra has no such projection
+                "project_link_to_base_layer": algorithm_parameters.project_link_to_base_layer
+                and index_build_parameters.data_type != DataType.BINARY,
+                # the m the CAGRA graph was built with (layer 1 uses 2 * m links)
+                "m": m,
             }
             faiss_index_hnsw_cagra_builder = FaissIndexHNSWCagraBuilder.from_dict(
                 cpu_index_config_params

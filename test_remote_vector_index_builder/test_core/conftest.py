@@ -74,12 +74,51 @@ class MockGpuIndexCagra:
     def is_deleted(self):
         return _deletion_tracker.is_deleted(self.id)
 
-    def copyTo(self, cpu_index, skip_storage=False):
-        """Mock implementation of copyTo method"""
+    def copyTo(self, cpu_index, skip_storage=False, projection=None, stats=None):
+        """Mock implementation of copyTo, including the upper-level projection overload"""
         if not isinstance(cpu_index, MockIndexHNSWCagra):
             raise TypeError("Target must be IndexHNSWCagra")
+        if projection is not None:
+            if not isinstance(projection, MockCagraUpperLevelProjectionParams):
+                raise TypeError("projection must be CagraUpperLevelProjectionParams")
+            if projection.M <= 0:
+                raise RuntimeError("upper-level projection needs M > 0")
+            if not cpu_index.base_level_only:
+                raise RuntimeError(
+                    "upper-level projection requires base_level_only = true"
+                )
+            if stats is not None:
+                stats.promoted = 1
         # Simulate copying data to CPU index
         return True
+
+
+class MockCagraUpperLevelProjectionParams:
+    """Mock for faiss.CagraUpperLevelProjectionParams (faiss patch 0004)"""
+
+    def __init__(self):
+        self.M = 0
+        self.ef_construction = 0
+        self.max_share = 0.5
+        self.protect_last_in_edge = True
+
+
+class MockCagraUpperLevelProjectionStats:
+    """Mock for faiss.CagraUpperLevelProjectionStats (faiss patch 0004)"""
+
+    def __init__(self):
+        self.promoted = 0
+        self.added_into_empty = 0
+        self.added_by_overwrite = 0
+        self.already_present = 0
+        self.skipped_cap = 0
+        self.protected_slots_skipped = 0
+        self.skipped_no_free_slot = 0
+        self.rows_not_full = 0
+        self.in_degree0_before = 0
+        self.in_degree0_after = 0
+        self.layer1_build_ms = 0.0
+        self.projection_ms = 0.0
 
 
 class MockGpuIndexBinaryCagra:
@@ -248,6 +287,8 @@ class FaissMock(ModuleType):
         self.IVFPQBuildCagraConfig = MockIVFPQBuildCagraConfig
         self.IVFPQSearchCagraConfig = MockIVFPQSearchCagraConfig
         self.GpuIndexCagraConfig = MockGpuIndexCagraConfig
+        self.CagraUpperLevelProjectionParams = MockCagraUpperLevelProjectionParams
+        self.CagraUpperLevelProjectionStats = MockCagraUpperLevelProjectionStats
         self.IndexBinaryHNSW = MockIndexBinaryHNSW
         self.Float32 = Mock()
         self.Float16 = Mock()
