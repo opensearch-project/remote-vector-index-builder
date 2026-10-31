@@ -1,0 +1,1159 @@
+From 2fbb82bfbff8d853378ef8e624aee3573aef95d4 Mon Sep 17 00:00:00 2001
+From: Navneet Verma <navneev@amazon.com>
+Date: Thu, 29 Oct 2026 22:46:15 +0000
+Subject: [PATCH] GpuIndexCagra::copyTo: optional projection of HNSW layer-1
+ links into the CAGRA base layer
+
+On datasets made of well-separated clusters, the k-NN graph that CAGRA
+prunes its graph from is itself split into disconnected components, so
+the CAGRA graph is too. After conversion to IndexHNSWCagra with
+base_level_only=true, searches start from random base-level entry
+points and can only reach the components those points land in: recall
+drops (e.g. recall@600 ~0.15 vs ~0.99 for a CPU-built HNSW on a 300k x
+1024 product-catalogue corpus) and identical queries return different
+results.
+
+This adds an optional step to GpuIndexCagra::copyTo, enabled through a
+new overload
+
+    copyTo(IndexHNSWCagra* index, bool skip_storage,
+           const CagraUpperLevelProjectionParams* projection,
+           CagraUpperLevelProjectionStats* stats = nullptr)
+
+(the existing copyTo is unchanged and passes nullptr). It requires
+base_level_only=true and leaves the output base-level only, so the file
+format is unchanged:
+
+1. Promote nodes to layer 1 with faiss's HNSW level generator
+   (HNSW::random_level, seed 12345, id order) as for an HNSW with 2 * M
+   links per node: probability 1 / (2 * M), where M is the HNSW m of the
+   index and must be passed by the caller (CagraUpperLevelProjectionParams::M).
+2. Copy only the promoted rows of the CAGRA dataset as float (fp32 /
+   fp16 / int8; works with skip_storage). The dataset must be the
+   caller's host array, i.e. store_dataset = false (the configuration the
+   OpenSearch remote-vector-index-builder uses); the projection throws
+   with store_dataset = true.
+3. Build layer 1 as a temporary single-level IndexHNSWFlat over the
+   promoted vectors (2 * M links per node; no levels above it), with
+   faiss's own HNSW insertion. Both copies of the promoted vectors are
+   freed as soon as it is built; only its graph is kept.
+4. Project every layer-1 link a-b into level 0 as a->b and b->a: into an
+   empty slot if there is one, else by overwriting the row's tail
+   (CAGRA's lowest-ranked links), at most max_share (default 0.5) of a
+   full row; rows that are not full are uncapped. With
+   protect_last_in_edge (default true) a link that is a node's last
+   level-0 in-edge is never overwritten, so no node becomes
+   unreachable. Rows are processed in parallel (OpenMP), one thread per
+   row; in-degrees are shared atomics.
+
+Tests (faiss/gpu/test/TestGpuIndexCagra.cu, faiss/gpu/test/test_cagra.py),
+on 20k x 64 vectors in 100 well-separated clusters where the plain CAGRA
+graph is fragmented:
+- the projection connects the base layer (every sampled start reaches all
+  nodes) and raises base-level-only recall@10 to >= 0.9;
+- row invariants: at most max_share of a row changes, no duplicates are
+  added, ids stay valid; stats match the graph change; the promoted count
+  equals faiss's own HNSW(2M) level draw; no node loses its last in-edge;
+- max_share = 0 and a null projection leave level 0 identical to copyTo;
+- M <= 0, max_share > 1, base_level_only = false and store_dataset = true
+  are rejected;
+- fp16 data and skip_storage = true are supported.
+
+Measured on an NVIDIA L4 with cuVS 26.08.01 (CAGRA built with the
+remote-vector-index-builder defaults: IVF_PQ, graph/intermediate degree
+64/64, n_probes 5), base-level-only search at ef_search 600:
+  - 300k x 1024 clustered catalogue (m = 16): level-0 SCCs 218 -> 1;
+    recall@600 0.11-0.17 -> 0.95-0.99; build time +0.45 s (7.4 -> 7.85 s).
+  - SIFT-1M / Cohere-1M (already connected): recall within +-0.002.
+
+Signed-off-by: Navneet Verma <navneev@amazon.com>
+---
+ faiss/gpu/GpuIndexCagra.cu          | 427 ++++++++++++++++++++++++++++
+ faiss/gpu/GpuIndexCagra.h           |  50 ++++
+ faiss/gpu/test/TestGpuIndexCagra.cu | 343 ++++++++++++++++++++++
+ faiss/gpu/test/test_cagra.py        | 176 ++++++++++++
+ 4 files changed, 996 insertions(+)
+
+diff --git a/faiss/gpu/GpuIndexCagra.cu b/faiss/gpu/GpuIndexCagra.cu
+index 2a2f61e42..b8c134b8a 100644
+--- a/faiss/gpu/GpuIndexCagra.cu
++++ b/faiss/gpu/GpuIndexCagra.cu
+@@ -24,15 +24,374 @@
+ #include <faiss/IndexHNSW.h>
+ #include <faiss/gpu/GpuIndexCagra.h>
+ #include <faiss/gpu/StandardGpuResources.h>
++#include <faiss/impl/HNSW.h>
++#include <faiss/utils/utils.h>
++#include <algorithm>
++#include <atomic>
++#include <cmath>
+ #include <cstddef>
+ #include <cstdio>
+ #include <faiss/gpu/impl/CuvsCagra.cuh>
++#include <memory>
+ #include <optional>
+ #include <type_traits>
+ 
+ namespace faiss {
+ namespace gpu {
+ 
++namespace {
++
++inline float to_float(float v) {
++    return v;
++}
++inline float to_float(half v) {
++    return __half2float(v);
++}
++inline float to_float(int8_t v) {
++    return static_cast<float>(v);
++}
++
++/// Copies rows `ids` of a host [n, d] dataset into a host float array
++/// [ids.size(), d]. The dataset must be in host memory: with
++/// store_dataset = false (the only configuration the OpenSearch
++/// remote-vector-index-builder uses) CuvsCagra keeps a pointer to the caller's
++/// host array, which is still alive while copyTo runs.
++template <typename T>
++std::vector<float> gather_rows_as_float(
++        const T* data,
++        int d,
++        const std::vector<idx_t>& ids) {
++    FAISS_THROW_IF_NOT_MSG(
++            getDeviceForAddress(data) < 0,
++            "GpuIndexCagra::copyTo: upper-level projection needs the dataset "
++            "in host memory");
++    std::vector<float> out(ids.size() * d);
++    for (size_t i = 0; i < ids.size(); i++) {
++        const T* row = data + ids[i] * d;
++        for (int j = 0; j < d; j++) {
++            out[i * d + j] = to_float(row[j]);
++        }
++    }
++    return out;
++}
++
++/// Draws every node's level with faiss's HNSW level generator (seed 12345, in
++/// id order, as HNSW::prepare_level_tab does) for an HNSW with M links per
++/// upper-level node, i.e. promotion probability 1 / M, and returns the nodes
++/// at level >= 1.
++std::vector<idx_t> draw_promoted(idx_t n, int M) {
++    HNSW draw(M);
++    draw.assign_probas.clear();
++    draw.cum_nneighbor_per_level.clear();
++    draw.set_default_probas(M, 1.0f / std::log(M));
++    std::vector<idx_t> promoted;
++    for (idx_t i = 0; i < n; i++) {
++        if (draw.random_level() >= 1) {
++            promoted.push_back(i);
++        }
++    }
++    return promoted;
++}
++
++/// Builds layer 1: a temporary single-level IndexHNSWFlat over the promoted
++/// vectors `xp` (every node preset to level 0 with M slots, so no levels above
++/// it are created), using faiss's own HNSW insertion. Only the graph is kept:
++/// `xp` and the index's flat storage are freed before returning.
++std::unique_ptr<IndexHNSWFlat> build_layer1(
++        std::vector<float>& xp,
++        int d,
++        faiss::MetricType metric,
++        int M,
++        int ef_construction) {
++    const idx_t np = xp.size() / d;
++    auto up = std::make_unique<IndexHNSWFlat>(d, M, metric);
++    up->hnsw.assign_probas.clear();
++    up->hnsw.cum_nneighbor_per_level.clear();
++    up->hnsw.cum_nneighbor_per_level.push_back(0);
++    up->hnsw.cum_nneighbor_per_level.push_back(M);
++    up->hnsw.levels.assign(np, 1); // stored level = max level + 1
++    up->hnsw.efConstruction = ef_construction;
++    up->add(np, xp.data()); // levels are preset, so IndexHNSW::add uses them
++    std::vector<float>().swap(xp);
++    delete up->storage;
++    up->storage = nullptr;
++    up->own_fields = false;
++    return up;
++}
++
++/// Directed links to add to level 0, one row per promoted node (CSR layout):
++/// the targets of promoted[r] are links[row_start[r] .. row_start[r + 1]).
++/// Both ends of every layer-1 link are promoted, so only promoted rows change.
++struct RowLinks {
++    std::vector<size_t> row_start;
++    std::vector<HNSW::storage_idx_t> links;
++};
++
++/// Turns every layer-1 link i-j (positions in `promoted`) into i->j and j->i,
++/// grouped by source with a stable counting sort, so each row keeps the order
++/// a sequential pass over the promoted nodes would use. Targets are global ids.
++RowLinks group_links_by_row(
++        const HNSW& layer1,
++        const std::vector<idx_t>& promoted) {
++    const size_t np = promoted.size();
++    std::vector<HNSW::storage_idx_t> src, dst; // positions in `promoted`
++    for (size_t i = 0; i < np; i++) {
++        size_t b, e;
++        layer1.neighbor_range(i, 0, &b, &e);
++        for (size_t k = b; k < e; k++) {
++            HNSW::storage_idx_t j = layer1.neighbors[k];
++            if (j < 0 || size_t(j) == i) {
++                continue;
++            }
++            src.push_back(i);
++            dst.push_back(j);
++            src.push_back(j);
++            dst.push_back(i);
++        }
++    }
++    RowLinks out;
++    out.row_start.assign(np + 1, 0);
++    for (auto r : src) {
++        out.row_start[r + 1]++;
++    }
++    for (size_t r = 0; r < np; r++) {
++        out.row_start[r + 1] += out.row_start[r];
++    }
++    out.links.resize(src.size());
++    std::vector<size_t> cursor(out.row_start.begin(), out.row_start.end() - 1);
++    for (size_t k = 0; k < src.size(); k++) {
++        out.links[cursor[src[k]]++] = promoted[dst[k]];
++    }
++    return out;
++}
++
++using InDegrees = std::unique_ptr<std::atomic<int32_t>[]>;
++
++/// Level-0 in-degree of every node (atomics, shared between rows).
++InDegrees count_in_degrees(const HNSW& h, idx_t n) {
++    InDegrees indeg(new std::atomic<int32_t>[n]);
++    for (idx_t i = 0; i < n; i++) {
++        indeg[i].store(0, std::memory_order_relaxed);
++    }
++#pragma omp parallel for
++    for (idx_t i = 0; i < n; i++) {
++        size_t b, e;
++        h.neighbor_range(i, 0, &b, &e);
++        for (size_t j = b; j < e; j++) {
++            if (h.neighbors[j] >= 0) {
++                indeg[h.neighbors[j]].fetch_add(1, std::memory_order_relaxed);
++            }
++        }
++    }
++    return indeg;
++}
++
++idx_t count_zero_in_degree(const InDegrees& indeg, idx_t n) {
++    idx_t zero = 0;
++#pragma omp parallel for reduction(+ : zero)
++    for (idx_t i = 0; i < n; i++) {
++        zero += indeg[i].load(std::memory_order_relaxed) == 0;
++    }
++    return zero;
++}
++
++/// Removes one in-edge of a node; with protect_last_in_edge, refuses to remove
++/// the last one (compare-and-swap, so concurrent rows cannot orphan it).
++inline bool release_in_edge(std::atomic<int32_t>& indeg, bool protect) {
++    if (!protect) {
++        indeg.fetch_sub(1, std::memory_order_relaxed);
++        return true;
++    }
++    int32_t cur = indeg.load(std::memory_order_relaxed);
++    while (cur > 1) {
++        if (indeg.compare_exchange_weak(
++                    cur, cur - 1, std::memory_order_relaxed)) {
++            return true;
++        }
++    }
++    return false;
++}
++
++/// Per-thread projection counters, merged with an OpenMP reduction.
++struct ProjectionCounters {
++    size_t added_into_empty = 0;
++    size_t added_by_overwrite = 0;
++    size_t already_present = 0;
++    size_t skipped_cap = 0;
++    size_t protected_slots_skipped = 0;
++    size_t skipped_no_free_slot = 0;
++    size_t rows_not_full = 0;
++
++    ProjectionCounters& operator+=(const ProjectionCounters& o) {
++        added_into_empty += o.added_into_empty;
++        added_by_overwrite += o.added_by_overwrite;
++        already_present += o.already_present;
++        skipped_cap += o.skipped_cap;
++        protected_slots_skipped += o.protected_slots_skipped;
++        skipped_no_free_slot += o.skipped_no_free_slot;
++        rows_not_full += o.rows_not_full;
++        return *this;
++    }
++};
++
++#pragma omp declare reduction( \
++                merge_counters:ProjectionCounters : omp_out += omp_in)
++
++/// Adds links[begin, end) to one level-0 row: skips links already present,
++/// fills empty slots first, then overwrites the row's tail (CAGRA's
++/// lowest-ranked links) up to `cap` times (no cap for rows that are not full
++/// to begin with), never removing a node's last in-edge when `protect`.
++inline void add_links_to_row(
++        HNSW::storage_idx_t* row,
++        int nb0,
++        int cap,
++        const HNSW::storage_idx_t* begin,
++        const HNSW::storage_idx_t* end,
++        std::atomic<int32_t>* indeg,
++        bool protect,
++        ProjectionCounters& c) {
++    int row_cap = cap;
++    for (int j = 0; j < nb0; j++) {
++        if (row[j] < 0) {
++            row_cap = nb0;
++            c.rows_not_full++;
++            break;
++        }
++    }
++    int replaced = 0;
++    int tail = nb0 - 1; // next tail slot to try overwriting
++    for (const HNSW::storage_idx_t* it = begin; it != end; ++it) {
++        const HNSW::storage_idx_t b = *it;
++        int empty = -1;
++        bool present = false;
++        for (int j = 0; j < nb0; j++) {
++            if (row[j] == b) {
++                present = true;
++                break;
++            }
++            if (row[j] < 0 && empty < 0) {
++                empty = j;
++            }
++        }
++        if (present) {
++            c.already_present++;
++            continue;
++        }
++        if (empty >= 0) {
++            row[empty] = b;
++            indeg[b].fetch_add(1, std::memory_order_relaxed);
++            c.added_into_empty++;
++            continue;
++        }
++        if (replaced >= row_cap) {
++            c.skipped_cap++;
++            continue;
++        }
++        // this slot may hold its target's last in-edge: then keep it
++        while (tail >= 0 && !release_in_edge(indeg[row[tail]], protect)) {
++            tail--;
++            c.protected_slots_skipped++;
++        }
++        if (tail < 0) {
++            c.skipped_no_free_slot++;
++            continue;
++        }
++        row[tail] = b;
++        indeg[b].fetch_add(1, std::memory_order_relaxed);
++        tail--;
++        replaced++;
++        c.added_by_overwrite++;
++    }
++}
++
++/// Adds the grouped links to the level-0 rows of the promoted nodes of `h`, in
++/// parallel: one thread per row, so row writes never race; in-degrees are
++/// shared atomics. Promoted nodes come from a random draw and are spread
++/// evenly over ids, so a static split is balanced.
++ProjectionCounters add_links(
++        HNSW& h,
++        const std::vector<idx_t>& promoted,
++        const RowLinks& links,
++        InDegrees& indeg,
++        float max_share,
++        bool protect) {
++    size_t begin0, end0;
++    h.neighbor_range(0, 0, &begin0, &end0);
++    const int nb0 = static_cast<int>(end0 - begin0);
++    const int cap = static_cast<int>(max_share * nb0);
++    ProjectionCounters total;
++#pragma omp parallel for schedule(static) reduction(merge_counters : total)
++    for (size_t r = 0; r < promoted.size(); r++) {
++        if (links.row_start[r] == links.row_start[r + 1]) {
++            continue;
++        }
++        size_t rb, re;
++        h.neighbor_range(promoted[r], 0, &rb, &re);
++        add_links_to_row(
++                h.neighbors.data() + rb,
++                nb0,
++                cap,
++                links.links.data() + links.row_start[r],
++                links.links.data() + links.row_start[r + 1],
++                indeg.get(),
++                protect,
++                total);
++    }
++    return total;
++}
++
++/// Builds HNSW layer 1 over the promoted vectors `xp` (released as soon as it
++/// is built) and projects its links into the level-0 lists of `index`.
++void project_upper_level(
++        faiss::IndexHNSWCagra* index,
++        const std::vector<idx_t>& promoted,
++        std::vector<float>& xp,
++        int d,
++        faiss::MetricType metric,
++        int M,
++        int ef_construction,
++        float max_share,
++        bool protect_last_in_edge,
++        CagraUpperLevelProjectionStats* stats_out) {
++    CagraUpperLevelProjectionStats stats;
++    stats.promoted = promoted.size();
++    const idx_t n = index->ntotal;
++    if (promoted.size() >= 2) {
++        double t0 = getmillisecs();
++        std::unique_ptr<IndexHNSWFlat> layer1 =
++                build_layer1(xp, d, metric, M, ef_construction);
++        stats.layer1_build_ms = getmillisecs() - t0;
++
++        t0 = getmillisecs();
++        RowLinks links = group_links_by_row(layer1->hnsw, promoted);
++        layer1.reset();
++        InDegrees indeg = count_in_degrees(index->hnsw, n);
++        stats.in_degree0_before = count_zero_in_degree(indeg, n);
++        ProjectionCounters c = add_links(
++                index->hnsw,
++                promoted,
++                links,
++                indeg,
++                max_share,
++                protect_last_in_edge);
++        stats.in_degree0_after = count_zero_in_degree(indeg, n);
++        stats.projection_ms = getmillisecs() - t0;
++
++        stats.added_into_empty = c.added_into_empty;
++        stats.added_by_overwrite = c.added_by_overwrite;
++        stats.already_present = c.already_present;
++        stats.skipped_cap = c.skipped_cap;
++        stats.protected_slots_skipped = c.protected_slots_skipped;
++        stats.skipped_no_free_slot = c.skipped_no_free_slot;
++        stats.rows_not_full = c.rows_not_full;
++    }
++    if (stats_out) {
++        *stats_out = stats;
++    }
++}
++
++} // namespace
++
+ GpuIndexCagra::GpuIndexCagra(
+         GpuResourcesProvider* provider,
+         int dims,
+@@ -409,6 +768,34 @@ void GpuIndexCagra::copyFrom(const faiss::IndexHNSWCagra* index) {
+ void GpuIndexCagra::copyTo(
+         faiss::IndexHNSWCagra* index,
+         bool skip_storage) const {
++    copyTo(index, skip_storage, nullptr, nullptr);
++}
++
++void GpuIndexCagra::copyTo(
++        faiss::IndexHNSWCagra* index,
++        bool skip_storage,
++        const CagraUpperLevelProjectionParams* projection,
++        CagraUpperLevelProjectionStats* stats) const {
++    FAISS_THROW_IF_NOT_MSG(
++            !projection || index->base_level_only,
++            "GpuIndexCagra::copyTo: upper-level projection requires "
++            "base_level_only = true");
++    FAISS_THROW_IF_NOT_MSG(
++            !projection || projection->M > 0,
++            "GpuIndexCagra::copyTo: upper-level projection needs M > 0 (the "
++            "HNSW m of the index)");
++    FAISS_THROW_IF_NOT_MSG(
++            !projection ||
++                    (projection->max_share >= 0 && projection->max_share <= 1),
++            "GpuIndexCagra::copyTo: invalid projection parameters");
++    // The projection reads the promoted vectors from the caller's host array,
++    // which CuvsCagra only references when store_dataset = false. The
++    // OpenSearch remote-vector-index-builder never sets store_dataset = true,
++    // so that configuration is not supported.
++    FAISS_THROW_IF_NOT_MSG(
++            !projection || !cagraConfig_.store_dataset,
++            "GpuIndexCagra::copyTo: upper-level projection is not supported "
++            "with store_dataset = true");
+     FAISS_ASSERT(
+             !std::holds_alternative<std::monostate>(index_) &&
+             this->is_trained && index);
+@@ -594,6 +981,46 @@ void GpuIndexCagra::copyTo(
+         }
+     }
+ 
++    if (projection) {
++        // layer 1 as in an HNSW with 2m links per node: promotion 1/(2m)
++        const int pM = 2 * projection->M;
++        const int pef = projection->ef_construction > 0
++                ? projection->ef_construction
++                : index->hnsw.efConstruction;
++        std::vector<idx_t> promoted = draw_promoted(n_train, pM);
++        std::vector<float> xp;
++        if (numeric_type_ == NumericType::Float32) {
++            xp = gather_rows_as_float(
++                    std::get<std::shared_ptr<CuvsCagra<float>>>(index_)
++                            ->get_training_dataset(),
++                    this->d,
++                    promoted);
++        } else if (numeric_type_ == NumericType::Float16) {
++            xp = gather_rows_as_float(
++                    std::get<std::shared_ptr<CuvsCagra<half>>>(index_)
++                            ->get_training_dataset(),
++                    this->d,
++                    promoted);
++        } else {
++            xp = gather_rows_as_float(
++                    std::get<std::shared_ptr<CuvsCagra<int8_t>>>(index_)
++                            ->get_training_dataset(),
++                    this->d,
++                    promoted);
++        }
++        project_upper_level(
++                index,
++                promoted,
++                xp,
++                this->d,
++                this->metric_type,
++                pM,
++                pef,
++                projection->max_share,
++                projection->protect_last_in_edge,
++                stats);
++    }
++
+     // turn back on to allow new vectors to be added to level 0
+     index->init_level0 = true;
+ }
+diff --git a/faiss/gpu/GpuIndexCagra.h b/faiss/gpu/GpuIndexCagra.h
+index 7e5daa279..8f325b2e1 100644
+--- a/faiss/gpu/GpuIndexCagra.h
++++ b/faiss/gpu/GpuIndexCagra.h
+@@ -250,6 +250,47 @@ struct SearchParametersCagra : SearchParameters {
+     uint64_t seed = 0x128394;
+ };
+ 
++/// Optional step of GpuIndexCagra::copyTo for base-level-only conversions:
++/// build an HNSW layer 1 over a promoted subset of the vectors and project its
++/// links into the CAGRA base layer (level 0). On data made of well-separated
++/// clusters the CAGRA graph inherits the disconnected clusters of the k-NN
++/// graph it is pruned from; HNSW insertion creates near-neighbour links between
++/// clusters, which this step adds to level 0. The output stays base-level only
++/// and the file format is unchanged.
++struct CagraUpperLevelProjectionParams {
++    /// HNSW m of the index (required, > 0). Layer 1 is built like an HNSW
++    /// with 2 * M links per node, and a node is promoted to it with
++    /// probability 1 / (2 * M), drawn by faiss's HNSW level generator
++    /// (HNSW::random_level, seed 12345).
++    int M = 0;
++    /// efConstruction for the layer-1 build. 0 = index->hnsw.efConstruction.
++    int ef_construction = 0;
++    /// At most this share of a node's level-0 links may be overwritten by
++    /// projected links (tail slots first). Rows that are not full to begin
++    /// with are not capped (they may take links up to their full width).
++    float max_share = 0.5f;
++    /// Never overwrite a link that is the last level-0 in-edge of its target,
++    /// so the projection never makes a node unreachable.
++    bool protect_last_in_edge = true;
++};
++
++/// Counters reported by the projection step (optional output of copyTo).
++struct CagraUpperLevelProjectionStats {
++    idx_t promoted = 0;
++    size_t added_into_empty = 0;
++    size_t added_by_overwrite = 0;
++    size_t already_present = 0;
++    size_t skipped_cap = 0;
++    size_t protected_slots_skipped = 0;
++    size_t skipped_no_free_slot = 0;
++    /// level-0 rows that had empty slots before the projection (cap = 100%)
++    size_t rows_not_full = 0;
++    idx_t in_degree0_before = 0;
++    idx_t in_degree0_after = 0;
++    double layer1_build_ms = 0;
++    double projection_ms = 0;
++};
++
+ struct GpuIndexCagra : public GpuIndex {
+    public:
+     GpuIndexCagra(
+@@ -287,6 +328,15 @@ struct GpuIndexCagra : public GpuIndex {
+             faiss::IndexHNSWCagra* index,
+             bool skip_storage = false) const;
+ 
++    /// Same as above; if `projection` is not null (requires
++    /// index->base_level_only), also projects HNSW layer-1 links into level 0
++    /// (see CagraUpperLevelProjectionParams). `stats` is optional.
++    void copyTo(
++            faiss::IndexHNSWCagra* index,
++            bool skip_storage,
++            const CagraUpperLevelProjectionParams* projection,
++            CagraUpperLevelProjectionStats* stats = nullptr) const;
++
+     void reset() override;
+ 
+     std::vector<idx_t> get_knngraph() const;
+diff --git a/faiss/gpu/test/TestGpuIndexCagra.cu b/faiss/gpu/test/TestGpuIndexCagra.cu
+index 1f94b6dfb..e516eae77 100644
+--- a/faiss/gpu/test/TestGpuIndexCagra.cu
++++ b/faiss/gpu/test/TestGpuIndexCagra.cu
+@@ -28,12 +28,18 @@
+ #include <faiss/gpu/GpuResources.h>
+ #include <faiss/gpu/StandardGpuResources.h>
+ #include <faiss/gpu/test/TestUtils.h>
++#include <faiss/impl/HNSW.h>
+ #include <faiss/impl/IDSelector.h>
+ #include <faiss/utils/distances.h>
++#include <algorithm>
++#include <cmath>
+ #include <cstddef>
+ #include <faiss/gpu/utils/CopyUtils.cuh>
+ #include <faiss/gpu/utils/DeviceTensor.cuh>
+ #include <optional>
++#include <queue>
++#include <random>
++#include <unordered_set>
+ #include <vector>
+ 
+ #include <raft/core/resource/cuda_stream.hpp>
+@@ -943,6 +949,343 @@ TEST(TestGpuIndexCagra, IDSelector_IP) {
+     testIDSelectorCagra(faiss::METRIC_INNER_PRODUCT);
+ }
+ 
++//
++// Upper-level projection: GpuIndexCagra::copyTo(...,
++// CagraUpperLevelProjectionParams)
++//
++
++namespace {
++
++// Well-separated clusters: the exact k-NN graph of this data is disconnected
++// across clusters, so a CAGRA graph built from it splits into many components.
++constexpr faiss::idx_t kProjN = 20000;
++constexpr int kProjDim = 64;
++constexpr int kProjClusters = 100;
++constexpr int kProjGraphDegree = 32;
++constexpr int kProjM = 8; // HNSW m: layer 1 with 2 * m links, promotion 1/(2m)
++
++std::vector<float> clusteredVecs(
++        faiss::idx_t n,
++        int d,
++        int nclusters,
++        float sigma,
++        std::vector<int>* labels,
++        unsigned seed) {
++    std::mt19937 rng(seed);
++    std::normal_distribution<float> normal(0.0f, 1.0f);
++    std::uniform_int_distribution<int> pick(0, nclusters - 1);
++    std::vector<float> centers(size_t(nclusters) * d);
++    for (auto& v : centers) {
++        v = normal(rng);
++    }
++    faiss::fvec_renorm_L2(d, nclusters, centers.data());
++    std::vector<float> x(size_t(n) * d);
++    if (labels) {
++        labels->resize(n);
++    }
++    for (faiss::idx_t i = 0; i < n; i++) {
++        int c = pick(rng);
++        if (labels) {
++            (*labels)[i] = c;
++        }
++        for (int j = 0; j < d; j++) {
++            x[i * d + j] = centers[c * d + j] +
++                    sigma / std::sqrt(float(d)) * normal(rng);
++        }
++    }
++    return x;
++}
++
++faiss::gpu::GpuIndexCagraConfig projectionConfig() {
++    faiss::gpu::GpuIndexCagraConfig config;
++    config.graph_degree = kProjGraphDegree;
++    config.intermediate_graph_degree = kProjGraphDegree;
++    config.build_algo = faiss::gpu::graph_build_algo::IVF_PQ;
++    // the projection reads the caller's host array: store_dataset must be false
++    config.store_dataset = false;
++    return config;
++}
++
++faiss::gpu::CagraUpperLevelProjectionParams projectionParams() {
++    faiss::gpu::CagraUpperLevelProjectionParams params;
++    params.M = kProjM;
++    return params;
++}
++
++// level-0 neighbour rows of a CPU index, [ntotal][nb0]
++std::vector<std::vector<int32_t>> level0Rows(
++        const faiss::IndexHNSWCagra& index) {
++    std::vector<std::vector<int32_t>> rows(index.ntotal);
++    for (faiss::idx_t i = 0; i < index.ntotal; i++) {
++        size_t b, e;
++        index.hnsw.neighbor_range(i, 0, &b, &e);
++        rows[i].assign(
++                index.hnsw.neighbors.begin() + b,
++                index.hnsw.neighbors.begin() + e);
++    }
++    return rows;
++}
++
++// number of nodes reachable from `start` following level-0 out-edges
++faiss::idx_t reachableFrom(
++        const std::vector<std::vector<int32_t>>& rows,
++        faiss::idx_t start) {
++    std::vector<char> seen(rows.size(), 0);
++    std::queue<faiss::idx_t> q;
++    q.push(start);
++    seen[start] = 1;
++    faiss::idx_t count = 1;
++    while (!q.empty()) {
++        faiss::idx_t a = q.front();
++        q.pop();
++        for (int32_t b : rows[a]) {
++            if (b >= 0 && !seen[b]) {
++                seen[b] = 1;
++                count++;
++                q.push(b);
++            }
++        }
++    }
++    return count;
++}
++
++// recall@k of base-level-only search vs exact search
++double baseLevelRecall(
++        faiss::IndexHNSWCagra& index,
++        const std::vector<float>& base,
++        const std::vector<float>& queries,
++        faiss::idx_t nq,
++        int k) {
++    std::vector<float> refD(nq * k), D(nq * k);
++    std::vector<faiss::idx_t> refI(nq * k), I(nq * k);
++    faiss::knn_L2sqr(
++            queries.data(),
++            base.data(),
++            kProjDim,
++            nq,
++            kProjN,
++            k,
++            refD.data(),
++            refI.data());
++    faiss::SearchParametersHNSW sp;
++    sp.efSearch = 64;
++    index.search(nq, queries.data(), k, D.data(), I.data(), &sp);
++    size_t hits = 0;
++    for (faiss::idx_t q = 0; q < nq; q++) {
++        std::unordered_set<faiss::idx_t> ref(
++                refI.begin() + q * k, refI.begin() + (q + 1) * k);
++        for (int j = 0; j < k; j++) {
++            hits += ref.count(I[q * k + j]);
++        }
++    }
++    return double(hits) / double(nq * k);
++}
++
++} // namespace
++
++TEST(TestGpuIndexCagra, UpperLevelProjection_ConnectsClusteredGraph) {
++    std::vector<float> base =
++            clusteredVecs(kProjN, kProjDim, kProjClusters, 0.3f, nullptr, 1);
++    faiss::gpu::StandardGpuResources res;
++    faiss::gpu::GpuIndexCagra gpuIndex(
++            &res, kProjDim, faiss::METRIC_L2, projectionConfig());
++    gpuIndex.train(kProjN, base.data());
++
++    faiss::IndexHNSWCagra plain, projected;
++    plain.base_level_only = true;
++    projected.base_level_only = true;
++    gpuIndex.copyTo(&plain);
++    auto params = projectionParams();
++    faiss::gpu::CagraUpperLevelProjectionStats stats;
++    gpuIndex.copyTo(&projected, false, &params, &stats);
++
++    auto plainRows = level0Rows(plain);
++    auto projectedRows = level0Rows(projected);
++    // precondition: the data really fragments the plain CAGRA graph
++    ASSERT_LT(reachableFrom(plainRows, 0), kProjN / 2);
++    // with the projection every sampled start reaches every node
++    std::mt19937 rng(7);
++    std::uniform_int_distribution<faiss::idx_t> pick(0, kProjN - 1);
++    for (int t = 0; t < 10; t++) {
++        EXPECT_EQ(reachableFrom(projectedRows, pick(rng)), kProjN);
++    }
++    EXPECT_GT(stats.promoted, 0);
++    EXPECT_GT(stats.added_by_overwrite, 0);
++
++    // search quality: fresh queries from the same clusters (same seed => the
++    // same centers and the same first kProjN points, then nq new points)
++    faiss::idx_t nq = 200;
++    std::vector<float> fresh = clusteredVecs(
++            kProjN + nq, kProjDim, kProjClusters, 0.3f, nullptr, 1);
++    std::vector<float> queries(fresh.begin() + kProjN * kProjDim, fresh.end());
++    double plainRecall = baseLevelRecall(plain, base, queries, nq, 10);
++    double projectedRecall = baseLevelRecall(projected, base, queries, nq, 10);
++    EXPECT_GE(projectedRecall, 0.9);
++    EXPECT_GT(projectedRecall, plainRecall);
++}
++
++TEST(TestGpuIndexCagra, UpperLevelProjection_RowInvariantsAndStats) {
++    std::vector<float> base =
++            clusteredVecs(kProjN, kProjDim, kProjClusters, 0.3f, nullptr, 2);
++    faiss::gpu::StandardGpuResources res;
++    faiss::gpu::GpuIndexCagra gpuIndex(
++            &res, kProjDim, faiss::METRIC_L2, projectionConfig());
++    gpuIndex.train(kProjN, base.data());
++
++    faiss::IndexHNSWCagra plain, projected;
++    plain.base_level_only = true;
++    projected.base_level_only = true;
++    gpuIndex.copyTo(&plain);
++    auto params = projectionParams();
++    faiss::gpu::CagraUpperLevelProjectionStats stats;
++    gpuIndex.copyTo(&projected, false, &params, &stats);
++
++    auto plainRows = level0Rows(plain);
++    auto projectedRows = level0Rows(projected);
++    const int nb0 = plainRows[0].size();
++    const int cap = int(params.max_share * nb0);
++    size_t changed = 0;
++    for (faiss::idx_t i = 0; i < kProjN; i++) {
++        int diff = 0;
++        std::unordered_set<int32_t> seen;
++        bool plainHasDup = false;
++        {
++            std::unordered_set<int32_t> s;
++            for (int32_t v : plainRows[i]) {
++                if (v >= 0 && !s.insert(v).second) {
++                    plainHasDup = true;
++                }
++            }
++        }
++        for (int j = 0; j < nb0; j++) {
++            int32_t v = projectedRows[i][j];
++            ASSERT_GE(v, -1);
++            ASSERT_LT(v, kProjN);
++            diff += v != plainRows[i][j];
++            if (!plainHasDup && v >= 0) {
++                EXPECT_TRUE(seen.insert(v).second)
++                        << "duplicate link in row " << i;
++            }
++        }
++        EXPECT_LE(diff, cap) << "row " << i;
++        changed += diff;
++    }
++    EXPECT_EQ(changed, stats.added_by_overwrite + stats.added_into_empty);
++
++    // promotion is faiss's HNSW level draw for an HNSW with 2 * M links
++    faiss::HNSW draw(2 * kProjM);
++    draw.assign_probas.clear();
++    draw.cum_nneighbor_per_level.clear();
++    draw.set_default_probas(2 * kProjM, 1.0f / std::log(2 * kProjM));
++    faiss::idx_t expectedPromoted = 0;
++    for (faiss::idx_t i = 0; i < kProjN; i++) {
++        expectedPromoted += draw.random_level() >= 1;
++    }
++    EXPECT_EQ(stats.promoted, expectedPromoted);
++
++    // protect_last_in_edge: the projection never makes a node unreachable
++    EXPECT_EQ(stats.in_degree0_after, stats.in_degree0_before);
++    EXPECT_EQ(stats.rows_not_full, 0); // CAGRA rows are full
++}
++
++TEST(TestGpuIndexCagra, UpperLevelProjection_MaxShareZeroAndNullParams) {
++    std::vector<float> base =
++            clusteredVecs(kProjN, kProjDim, kProjClusters, 0.3f, nullptr, 3);
++    faiss::gpu::StandardGpuResources res;
++    faiss::gpu::GpuIndexCagra gpuIndex(
++            &res, kProjDim, faiss::METRIC_L2, projectionConfig());
++    gpuIndex.train(kProjN, base.data());
++
++    faiss::IndexHNSWCagra plain, nullParams, zeroShare;
++    plain.base_level_only = nullParams.base_level_only =
++            zeroShare.base_level_only = true;
++    gpuIndex.copyTo(&plain);
++    gpuIndex.copyTo(&nullParams, false, nullptr);
++    auto params = projectionParams();
++    params.max_share = 0;
++    faiss::gpu::CagraUpperLevelProjectionStats stats;
++    gpuIndex.copyTo(&zeroShare, false, &params, &stats);
++
++    // no projection params: identical to the existing copyTo
++    EXPECT_EQ(level0Rows(nullParams), level0Rows(plain));
++    // max_share = 0 on full rows: nothing is overwritten
++    EXPECT_EQ(level0Rows(zeroShare), level0Rows(plain));
++    EXPECT_EQ(stats.added_by_overwrite, 0);
++    EXPECT_GT(stats.skipped_cap, 0);
++}
++
++TEST(TestGpuIndexCagra, UpperLevelProjection_InvalidParamsThrow) {
++    std::vector<float> base =
++            clusteredVecs(5000, kProjDim, 20, 0.3f, nullptr, 4);
++    faiss::gpu::StandardGpuResources res;
++    faiss::gpu::GpuIndexCagra gpuIndex(
++            &res, kProjDim, faiss::METRIC_L2, projectionConfig());
++    gpuIndex.train(5000, base.data());
++
++    {
++        faiss::IndexHNSWCagra cpu;
++        cpu.base_level_only = true;
++        auto params = projectionParams();
++        params.M = 0; // M is required
++        EXPECT_THROW(
++                gpuIndex.copyTo(&cpu, false, &params), faiss::FaissException);
++    }
++    {
++        faiss::IndexHNSWCagra cpu;
++        cpu.base_level_only = true;
++        auto params = projectionParams();
++        params.max_share = 1.5f;
++        EXPECT_THROW(
++                gpuIndex.copyTo(&cpu, false, &params), faiss::FaissException);
++    }
++    {
++        faiss::IndexHNSWCagra cpu;
++        cpu.base_level_only =
++                false; // the projection keeps the index base-level only
++        auto params = projectionParams();
++        EXPECT_THROW(
++                gpuIndex.copyTo(&cpu, false, &params), faiss::FaissException);
++    }
++    {
++        auto config = projectionConfig();
++        config.store_dataset = true; // not supported with the projection
++        faiss::gpu::GpuIndexCagra storing(
++                &res, kProjDim, faiss::METRIC_L2, config);
++        storing.train(5000, base.data());
++        faiss::IndexHNSWCagra cpu;
++        cpu.base_level_only = true;
++        auto params = projectionParams();
++        EXPECT_THROW(
++                storing.copyTo(&cpu, false, &params), faiss::FaissException);
++    }
++}
++
++TEST(TestGpuIndexCagra, UpperLevelProjection_Float16AndSkipStorage) {
++    std::vector<float> base =
++            clusteredVecs(kProjN, kProjDim, kProjClusters, 0.3f, nullptr, 5);
++    std::vector<half> baseHalf(base.size());
++    for (size_t i = 0; i < base.size(); i++) {
++        baseHalf[i] = __float2half(base[i]);
++    }
++    faiss::gpu::StandardGpuResources res;
++    faiss::gpu::GpuIndexCagra gpuIndex(
++            &res, kProjDim, faiss::METRIC_L2, projectionConfig());
++    gpuIndex.train_ex(kProjN, baseHalf.data(), faiss::NumericType::Float16);
++
++    for (bool skipStorage : {false, true}) {
++        faiss::IndexHNSWCagra cpu;
++        cpu.base_level_only = true;
++        auto params = projectionParams();
++        faiss::gpu::CagraUpperLevelProjectionStats stats;
++        gpuIndex.copyTo(&cpu, skipStorage, &params, &stats);
++        auto rows = level0Rows(cpu);
++        EXPECT_EQ(reachableFrom(rows, 0), kProjN)
++                << "skip_storage=" << skipStorage;
++        EXPECT_GT(stats.added_by_overwrite, 0);
++        EXPECT_EQ(stats.in_degree0_after, stats.in_degree0_before);
++    }
++}
++
+ int main(int argc, char** argv) {
+     testing::InitGoogleTest(&argc, argv);
+ 
+diff --git a/faiss/gpu/test/test_cagra.py b/faiss/gpu/test/test_cagra.py
+index 3d4dc1e94..5f82397f9 100644
+--- a/faiss/gpu/test/test_cagra.py
++++ b/faiss/gpu/test/test_cagra.py
+@@ -223,3 +223,179 @@ class TestIDMapCagra(unittest.TestCase):
+ 
+     def test_IDMapCagra_IP_Int8(self):
+         self.do_IDMapCagra(faiss.METRIC_INNER_PRODUCT, faiss.Int8)
++
++
++def clustered_vectors(n, d, nclusters, sigma, seed):
++    """Well-separated clusters: the exact k-NN graph is disconnected across clusters."""
++    rng = np.random.default_rng(seed)
++    centers = rng.standard_normal((nclusters, d)).astype(np.float32)
++    centers /= np.linalg.norm(centers, axis=1, keepdims=True)
++    labels = rng.integers(0, nclusters, n)
++    noise = rng.standard_normal((n, d)).astype(np.float32) * (sigma / np.sqrt(d))
++    return np.ascontiguousarray(centers[labels] + noise, dtype=np.float32)
++
++
++def level0_rows(cpu_index):
++    """Level-0 neighbour lists of an IndexHNSWCagra, shape [ntotal, nb0]."""
++    hnsw = cpu_index.hnsw
++    n = cpu_index.ntotal
++    neighbors = faiss.vector_to_array(hnsw.neighbors)
++    offsets = faiss.vector_to_array(hnsw.offsets).astype(np.int64)
++    nb0 = hnsw.nb_neighbors(0)
++    return neighbors[offsets[:n, None] + np.arange(nb0)[None, :]]
++
++
++def reachable_from(rows, start):
++    """Number of nodes reachable from `start` following level-0 out-edges."""
++    seen = np.zeros(len(rows), dtype=bool)
++    seen[start] = True
++    frontier = np.array([start])
++    while len(frontier):
++        nxt = rows[frontier].ravel()
++        nxt = np.unique(nxt[nxt >= 0])
++        nxt = nxt[~seen[nxt]]
++        seen[nxt] = True
++        frontier = nxt
++    return int(seen.sum())
++
++
++@unittest.skipIf(
++    "CUVS" not in faiss.get_compile_options(), "only if cuVS is compiled in"
++)
++class TestCagraUpperLevelProjection(unittest.TestCase):
++    """GpuIndexCagra.copyTo(cpu_index, skip_storage, CagraUpperLevelProjectionParams)"""
++
++    n, d, nclusters, graph_degree, m = 20000, 64, 100, 32, 8
++
++    def build(self, x, numeric_type=faiss.Float32, store_dataset=False):
++        cfg = faiss.GpuIndexCagraConfig()
++        cfg.graph_degree = self.graph_degree
++        cfg.intermediate_graph_degree = self.graph_degree
++        cfg.build_algo = faiss.graph_build_algo_IVF_PQ
++        # the projection reads the caller's host array: store_dataset must be False
++        cfg.store_dataset = store_dataset
++        self.res = faiss.StandardGpuResources()
++        gpu_index = faiss.GpuIndexCagra(self.res, self.d, faiss.METRIC_L2, cfg)
++        gpu_index.train(x, numeric_type=numeric_type)
++        return gpu_index
++
++    def params(self, **kwargs):
++        p = faiss.CagraUpperLevelProjectionParams()
++        p.M = self.m
++        for k, v in kwargs.items():
++            setattr(p, k, v)
++        return p
++
++    @staticmethod
++    def copy(gpu_index, params=None, skip_storage=False, stats=None):
++        cpu = faiss.IndexHNSWCagra()
++        cpu.base_level_only = True
++        if params is None:
++            gpu_index.copyTo(cpu)
++        else:
++            gpu_index.copyTo(cpu, skip_storage, params, stats)
++        return cpu
++
++    def test_connects_clustered_graph(self):
++        xb = clustered_vectors(self.n + 200, self.d, self.nclusters, 0.3, 1)
++        xb, xq = xb[: self.n], xb[self.n:]
++        x = np.ascontiguousarray(xb)
++        gpu_index = self.build(x)
++        plain = self.copy(gpu_index)
++        stats = faiss.CagraUpperLevelProjectionStats()
++        projected = self.copy(gpu_index, self.params(), stats=stats)
++
++        plain_rows, projected_rows = level0_rows(plain), level0_rows(projected)
++        # precondition: the data really fragments the plain CAGRA graph
++        self.assertLess(reachable_from(plain_rows, 0), self.n // 2)
++        for start in np.random.default_rng(7).integers(0, self.n, 10):
++            self.assertEqual(reachable_from(projected_rows, int(start)), self.n)
++        self.assertGreater(stats.promoted, 0)
++        self.assertGreater(stats.added_by_overwrite, 0)
++
++        # base-level-only search recall@10 vs exact
++        k = 10
++        _, Iref = faiss.knn(xq, x, k)
++        params = faiss.SearchParametersHNSW(efSearch=64)
++
++        def recall(index):
++            _, I = index.search(xq, k, params=params)
++            return np.mean([len(set(I[i]) & set(Iref[i])) / k for i in range(len(xq))])
++
++        projected_recall = recall(projected)
++        self.assertGreaterEqual(projected_recall, 0.9)
++        self.assertGreater(projected_recall, recall(plain))
++
++    def test_row_invariants_and_stats(self):
++        x = clustered_vectors(self.n, self.d, self.nclusters, 0.3, 2)
++        gpu_index = self.build(x)
++        plain = self.copy(gpu_index)
++        stats = faiss.CagraUpperLevelProjectionStats()
++        params = self.params()
++        projected = self.copy(gpu_index, params, stats=stats)
++
++        plain_rows, projected_rows = level0_rows(plain), level0_rows(projected)
++        nb0 = plain_rows.shape[1]
++        cap = int(params.max_share * nb0)
++        changed = (plain_rows != projected_rows).sum(axis=1)
++        self.assertLessEqual(int(changed.max()), cap)
++        self.assertEqual(int(changed.sum()), stats.added_by_overwrite + stats.added_into_empty)
++        self.assertTrue(((projected_rows >= -1) & (projected_rows < self.n)).all())
++        for i in range(self.n):  # no duplicates are introduced
++            row = projected_rows[i][projected_rows[i] >= 0]
++            plain_row = plain_rows[i][plain_rows[i] >= 0]
++            if len(np.unique(plain_row)) == len(plain_row):
++                self.assertEqual(len(np.unique(row)), len(row))
++
++        # promotion is faiss's HNSW level draw for an HNSW with 2 * M links
++        draw = faiss.HNSW(2 * self.m)
++        draw.assign_probas.clear()
++        draw.cum_nneighbor_per_level.clear()
++        draw.set_default_probas(2 * self.m, 1.0 / np.log(2 * self.m))
++        expected = sum(draw.random_level() >= 1 for _ in range(self.n))
++        self.assertEqual(stats.promoted, expected)
++
++        # protect_last_in_edge: no node becomes unreachable
++        self.assertEqual(stats.in_degree0_after, stats.in_degree0_before)
++        self.assertEqual(stats.rows_not_full, 0)  # CAGRA rows are full
++
++    def test_max_share_zero_and_no_params(self):
++        x = clustered_vectors(self.n, self.d, self.nclusters, 0.3, 3)
++        gpu_index = self.build(x)
++        plain_rows = level0_rows(self.copy(gpu_index))
++
++        no_params = faiss.IndexHNSWCagra()
++        no_params.base_level_only = True
++        gpu_index.copyTo(no_params, False, None)
++        np.testing.assert_array_equal(level0_rows(no_params), plain_rows)
++
++        stats = faiss.CagraUpperLevelProjectionStats()
++        zero = self.copy(gpu_index, self.params(max_share=0.0), stats=stats)
++        np.testing.assert_array_equal(level0_rows(zero), plain_rows)
++        self.assertEqual(stats.added_by_overwrite, 0)
++        self.assertGreater(stats.skipped_cap, 0)
++
++    def test_invalid_params_raise(self):
++        x = clustered_vectors(5000, self.d, 20, 0.3, 4)
++        gpu_index = self.build(x)
++        with self.assertRaises(RuntimeError):  # M is required
++            self.copy(gpu_index, self.params(M=0))
++        with self.assertRaises(RuntimeError):
++            self.copy(gpu_index, self.params(max_share=1.5))
++        cpu = faiss.IndexHNSWCagra()
++        cpu.base_level_only = False  # the projection keeps the index base-level only
++        with self.assertRaises(RuntimeError):
++            gpu_index.copyTo(cpu, False, self.params())
++        storing = self.build(x, store_dataset=True)  # not supported with the projection
++        with self.assertRaises(RuntimeError):
++            self.copy(storing, self.params())
++
++    def test_float16_and_skip_storage(self):
++        x = clustered_vectors(self.n, self.d, self.nclusters, 0.3, 5).astype(np.float16)
++        gpu_index = self.build(x, numeric_type=faiss.Float16)
++        for skip_storage in (False, True):
++            stats = faiss.CagraUpperLevelProjectionStats()
++            cpu = self.copy(gpu_index, self.params(), skip_storage=skip_storage, stats=stats)
++            self.assertEqual(reachable_from(level0_rows(cpu), 0), self.n)
++            self.assertGreater(stats.added_by_overwrite, 0)
++            self.assertEqual(stats.in_degree0_after, stats.in_degree0_before)
+-- 
+2.47.3
+

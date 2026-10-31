@@ -28,6 +28,10 @@ RUN cd /tmp/faiss && patch -p1 < /tmp/patches/0002-Do-not-auto-widen-intermediat
 # shipped by cuVS for FAISS v1.14.3.
 # https://github.com/rapidsai/cuvs/blob/v26.08.01/cpp/cmake/patches/faiss-1.14-cuvs-26.08.diff
 RUN cd /tmp/faiss && patch -p1 < /tmp/patches/0003-faiss-1.14-cuvs-26.08.patch
+# Optional projection of HNSW layer-1 links into the CAGRA base layer in
+# GpuIndexCagra::copyTo (connects CAGRA graphs on clustered data). Only active
+# when the new copyTo(..., CagraUpperLevelProjectionParams*) overload is called.
+RUN cd /tmp/faiss && patch -p1 < /tmp/patches/0004-Project-HNSW-layer-1-links-into-the-CAGRA-base-layer.patch
 COPY ./base_image/build_scripts/build-faiss.sh /tmp/build-faiss.sh
 
 RUN chown -R appuser:appuser /tmp
