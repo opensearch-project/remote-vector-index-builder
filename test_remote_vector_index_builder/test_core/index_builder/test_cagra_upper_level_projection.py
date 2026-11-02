@@ -14,6 +14,7 @@ import pytest
 
 from core.index_builder.faiss import cagra_upper_level_projection as projection
 from core.index_builder.faiss.cagra_upper_level_projection import (
+    max_reachable_share,
     project_links,
     project_upper_level,
 )
@@ -300,8 +301,11 @@ class TestProjectUpperLevel:
         ) as mock_draw, patch.object(
             projection, "build_layer1", return_value=layer1
         ) as mock_layer1:
-            project_upper_level(cpu_index, vectors, m=4, ef_construction=64)
+            ran = project_upper_level(
+                cpu_index, vectors, m=4, ef_construction=64, skip_if_reachable=2.0
+            )
 
+        assert ran is True
         mock_draw.assert_called_once_with(n, 8)
         layer1_vectors, metric, links_per_node, ef_construction = mock_layer1.call_args[
             0
@@ -324,12 +328,21 @@ class TestProjectUpperLevel:
         cpu_index = self._cpu_index(table)
 
         with patch.object(
+            projection, "_vec_view", side_effect=lambda v: v
+        ), patch.object(
             projection, "draw_promoted", return_value=np.array([1], dtype=np.int32)
-        ), patch.object(projection, "build_layer1") as mock_layer1:
-            project_upper_level(
-                cpu_index, np.zeros((2, 4), np.float32), m=16, ef_construction=100
+        ), patch.object(
+            projection, "build_layer1"
+        ) as mock_layer1:
+            ran = project_upper_level(
+                cpu_index,
+                np.zeros((2, 4), np.float32),
+                m=16,
+                ef_construction=100,
+                skip_if_reachable=2.0,
             )
 
+        assert ran is False
         mock_layer1.assert_not_called()
         np.testing.assert_array_equal(cpu_index.hnsw.neighbors, [1, 0])
 
@@ -356,3 +369,94 @@ class TestProjectUpperLevel:
                 ef_construction=100,
                 max_share=kwargs.get("max_share", 0.5),
             )
+
+    @staticmethod
+    def _two_rings(size=50, nb0=4):
+        """Two clusters, each a ring: from any node only its own half (50%) is reachable"""
+        table = np.empty((2 * size, nb0), dtype=np.int32)
+        for c in range(2):
+            for i in range(size):
+                table[c * size + i] = [
+                    c * size + (i + k) % size for k in range(1, nb0 + 1)
+                ]
+        return table
+
+    def test_gate_skips_well_connected_graph(self):
+        """Every node reachable: no layer-1 build, graph unchanged"""
+        table = self._two_rings()
+        table[0, -1] = 50  # ring 0 -> ring 1
+        table[50, -1] = 0  # ring 1 -> ring 0
+        cpu_index = self._cpu_index(table)
+        vectors = np.zeros((table.shape[0], 4), np.float32)
+
+        with patch.object(
+            projection, "_vec_view", side_effect=lambda v: v
+        ), patch.object(projection, "build_layer1") as mock_layer1:
+            ran = project_upper_level(cpu_index, vectors, m=2, ef_construction=16)
+
+        assert ran is False
+        mock_layer1.assert_not_called()
+        np.testing.assert_array_equal(
+            cpu_index.hnsw.neighbors.reshape(table.shape), table
+        )
+
+    def test_gate_projects_fragmented_graph(self):
+        """Only half the graph reachable: the projection runs"""
+        table = self._two_rings()
+        promoted = np.array([3, 60], dtype=np.int32)
+        cpu_index = self._cpu_index(table)
+        vectors = np.zeros((table.shape[0], 4), np.float32)
+
+        with patch.object(
+            projection, "_vec_view", side_effect=lambda v: v
+        ), patch.object(
+            projection, "draw_promoted", return_value=promoted
+        ), patch.object(
+            projection,
+            "build_layer1",
+            return_value=np.array([[1], [0]], dtype=np.int32),
+        ):
+            ran = project_upper_level(cpu_index, vectors, m=2, ef_construction=16)
+
+        assert ran is True
+        result = cpu_index.hnsw.neighbors.reshape(table.shape)
+        assert 60 in result[3] and 3 in result[60]
+
+    def test_max_reachable_share(self):
+        table = self._two_rings()
+        n, nb0 = table.shape
+        offsets = np.arange(n + 1, dtype=np.int64) * nb0
+        assert max_reachable_share(table.ravel(), offsets, nb0) == 0.5
+        table[0, -1] = 50  # ring 0 reaches ring 1, not the other way
+        assert max_reachable_share(table.ravel(), offsets, nb0, probes=n) == 1.0
+        table[:, 2:] = -1  # empty slots are not followed
+        assert max_reachable_share(table.ravel(), offsets, nb0, probes=n) == 0.5
+
+    def test_failed_post_condition_leaves_graph_unchanged(self):
+        """If the result would leave a node without an in-edge, nothing is written"""
+        table = np.array(
+            [
+                [1, 2, 3, 4],  # node 0 (promoted); slot 3 -> 4 is node 4's only in-edge
+                [2, 3, 0, 5],
+                [3, 0, 1, 5],
+                [0, 1, 2, 5],
+                [0, 1, 2, 3],
+                [0, 1, 2, 3],
+            ],
+            dtype=np.int32,
+        )
+        promoted = np.array([0, 5], dtype=np.int32)
+        layer1 = np.array([[1], [-1]], dtype=np.int32)
+
+        def no_protection(self, promoted, has_links):
+            empty = np.zeros(0, dtype=np.int64)
+            self.weak = np.zeros(self.n, dtype=bool)
+            self.weak_slots = self.weak_targets = self.weak_rows = empty
+            self.weak_links = empty
+
+        neighbors = table.ravel().copy()
+        offsets = np.arange(table.shape[0] + 1, dtype=np.int64) * 4
+        with patch.object(projection._RowAssignment, "_init_protection", no_protection):
+            with pytest.raises(RuntimeError, match="1 nodes without an in-edge"):
+                project_links(neighbors, offsets, 4, promoted, layer1, 0.5, True)
+        np.testing.assert_array_equal(neighbors.reshape(table.shape), table)

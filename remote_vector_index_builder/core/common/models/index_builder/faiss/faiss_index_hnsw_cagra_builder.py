@@ -67,6 +67,10 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
     # Never overwrite a node's last base-level in-edge
     upper_level_protect_last_in_edge: bool = True
 
+    # Skip the projection when at least this share of the nodes is already reachable from a
+    # random entry point (well-connected graph); > 1 always projects
+    upper_level_skip_if_reachable: float = 0.99
+
     @classmethod
     def from_dict(
         cls, params: Dict[str, Any] | None = None
@@ -96,14 +100,24 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
                 "FaissIndexHNSWCagraBuilder: the dataset vectors are required when "
                 "project_link_to_base_layer is true"
             )
-        project_upper_level(
-            cpu_index,
-            vectors,
-            m=self.m,
-            ef_construction=self.upper_level_ef_construction or self.ef_construction,
-            max_share=self.upper_level_max_share,
-            protect_last_in_edge=self.upper_level_protect_last_in_edge,
-        )
+        # Fail-safe: the projection only improves connectivity, so on any error the plain CAGRA graph
+        # (left unchanged by project_upper_level) is kept and the build continues.
+        try:
+            project_upper_level(
+                cpu_index,
+                vectors,
+                m=self.m,
+                ef_construction=self.upper_level_ef_construction
+                or self.ef_construction,
+                max_share=self.upper_level_max_share,
+                protect_last_in_edge=self.upper_level_protect_last_in_edge,
+                skip_if_reachable=self.upper_level_skip_if_reachable,
+            )
+        except Exception as e:
+            logger.warning(
+                f"Upper-level projection failed, keeping the plain CAGRA graph: {e}",
+                exc_info=True,
+            )
 
     def _do_convert_gpu_to_cpu_index(
         self,

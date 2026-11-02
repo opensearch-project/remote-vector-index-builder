@@ -20,6 +20,11 @@ the plain ``GpuIndexCagra.copyTo`` this module:
    (CAGRA's lowest-ranked links), at most ``max_share`` of a full row, never removing a node's last in-edge.
    Only the promoted nodes' rows change.
 
+Before any of this, a gate measures how much of the base graph search can reach from a few random entry points
+(breadth-first search over the neighbour table). Well-connected graphs are left as they are, so they do not pay
+for the layer-1 build. The graph is only written once the whole projection has been computed and checked (no
+node newly left without an in-edge); on any error it is left unchanged.
+
 The index stays base-level only; the file format is unchanged. It needs only stock faiss: the level-0 graph is
 read and written in place through zero-copy numpy views of ``hnsw.neighbors`` / ``hnsw.offsets``.
 
@@ -71,10 +76,11 @@ def project_upper_level(
     ef_construction: int,
     max_share: float = 0.5,
     protect_last_in_edge: bool = True,
-) -> None:
+    skip_if_reachable: float = 0.99,
+) -> bool:
     """
     Builds an HNSW layer 1 over a promoted subset of ``vectors`` and projects its links into the base level of
-    ``cpu_index`` in place.
+    ``cpu_index`` in place, unless the base graph is already well connected.
 
     Args:
         cpu_index: base-level-only faiss.IndexHNSWCagra, from the plain GpuIndexCagra.copyTo
@@ -83,6 +89,11 @@ def project_upper_level(
         ef_construction: efConstruction of the layer-1 build
         max_share: max share of a full base-level row that projected links may overwrite (0..1)
         protect_last_in_edge: never overwrite a slot holding its target's last base-level in-edge
+        skip_if_reachable: skip the projection when at least this share of the nodes is reachable from one of a
+            few random entry points (> 1: always project)
+
+    Returns:
+        True if the projection ran, False if it was skipped. On an exception the graph is unchanged.
     """
     if not cpu_index.base_level_only:
         raise ValueError("upper-level projection requires base_level_only = True")
@@ -98,12 +109,30 @@ def project_upper_level(
             f"upper-level projection got {vectors.shape[0]} vectors for an index of {n}"
         )
 
+    hnsw = cpu_index.hnsw
+    neighbors, offsets = _vec_view(hnsw.neighbors), _vec_view(hnsw.offsets)
+    nb0 = int(hnsw.nb_neighbors(0))
+
+    t0 = time.perf_counter()
+    reachable = (
+        max_reachable_share(neighbors, offsets, nb0, stop_at=skip_if_reachable)
+        if skip_if_reachable <= 1.0
+        else float("nan")
+    )
+    t_gate = time.perf_counter() - t0
+    if reachable >= skip_if_reachable:
+        logger.debug(
+            f"Upper-level projection skipped: {reachable:.2%} of {n} nodes reachable "
+            f"(gate_ms={t_gate * 1000:.1f})"
+        )
+        return False
+
     t0 = time.perf_counter()
     links_per_node = 2 * m
     promoted = draw_promoted(n, links_per_node)
     if len(promoted) < 2:
         logger.debug(f"Upper-level projection: {len(promoted)} promoted, nothing to do")
-        return
+        return False
 
     promoted_vectors = np.ascontiguousarray(vectors[promoted], dtype=np.float32)
     layer1 = build_layer1(
@@ -112,11 +141,10 @@ def project_upper_level(
     del promoted_vectors
     t1 = time.perf_counter()
 
-    hnsw = cpu_index.hnsw
     added = project_links(
-        _vec_view(hnsw.neighbors),
-        _vec_view(hnsw.offsets),
-        int(hnsw.nb_neighbors(0)),
+        neighbors,
+        offsets,
+        nb0,
         promoted,
         layer1,
         max_share,
@@ -124,9 +152,59 @@ def project_upper_level(
     )
     t2 = time.perf_counter()
     logger.debug(
-        f"Upper-level projection: promoted={len(promoted)} links_added={added} "
+        f"Upper-level projection: {reachable:.2%} of {n} nodes reachable, "
+        f"promoted={len(promoted)} links_added={added} gate_ms={t_gate * 1000:.1f} "
         f"layer1_build_ms={(t1 - t0) * 1000:.1f} projection_ms={(t2 - t1) * 1000:.1f}"
     )
+    return True
+
+
+# --------------------------------------------------------------------------------------------------------------
+# Gate: reachability of the base graph
+# --------------------------------------------------------------------------------------------------------------
+
+
+def max_reachable_share(
+    neighbors: np.ndarray,
+    offsets: np.ndarray,
+    nb0: int,
+    stop_at: float = 1.0,
+    probes: int = 3,
+    seed: int = 12345,
+) -> float:
+    """
+    Largest share of the nodes reachable (following links) from one of ``probes`` random entry points, which is
+    what a base-level-only search sees. Stops early once a probe reaches ``stop_at``.
+
+    One breadth-first search costs at most one pass over the neighbour table; on a fragmented graph each probe
+    only visits its own component.
+    """
+    n = len(offsets) - 1
+    best = 0.0
+    for start in np.random.default_rng(seed).choice(n, min(probes, n), replace=False):
+        best = max(best, _reachable_count(neighbors, offsets, nb0, int(start)) / n)
+        if best >= stop_at:
+            break
+    return best
+
+
+def _reachable_count(
+    neighbors: np.ndarray, offsets: np.ndarray, nb0: int, start: int
+) -> int:
+    n = len(offsets) - 1
+    visited = np.zeros(n, dtype=bool)
+    visited[start] = True
+    frontier = np.array([start], dtype=np.int64)
+    slots = np.arange(nb0, dtype=np.int64)
+    count = 1
+    while frontier.size:
+        nxt = neighbors[(offsets[frontier].astype(np.int64)[:, None] + slots).ravel()]
+        nxt = nxt[nxt >= 0]
+        nxt = np.unique(nxt[~visited[nxt]])
+        visited[nxt] = True
+        count += nxt.size
+        frontier = nxt
+    return count
 
 
 # --------------------------------------------------------------------------------------------------------------
@@ -750,16 +828,37 @@ class _RowAssignment:
         )
 
     def write_back(self, neighbors: np.ndarray, row_cols: np.ndarray) -> int:
-        """Writes the added links into ``neighbors`` (fills first: a filled slot may be overwritten later).
-        Returns the number of links written."""
+        """Checks the result, then writes the added links into ``neighbors`` (fills first: a filled slot may be
+        overwritten later). Returns the number of links written."""
         written = np.flatnonzero(self.status == _OVERWRITE)
         if self.has_empty:
             written = np.concatenate(
                 (np.flatnonzero(self.status == _INTO_EMPTY), written)
             )
         flat = self.row_base[written] + self.slot[written]
+        if self.protect:
+            self._check_no_lost_in_edges(written, flat)
         neighbors[row_cols.ravel()[flat]] = self.links.target[written]
         return int(written.size)
+
+    def _check_no_lost_in_edges(self, written: np.ndarray, flat: np.ndarray) -> None:
+        """Post-condition: no node that had an in-edge is left without one."""
+        overwritten = np.flatnonzero(self.status == _OVERWRITE)
+        removed = self.filled_rows.ravel()[
+            self.row_base[overwritten] + self.slot[overwritten]
+        ]
+        delta = np.bincount(self.links.target[written], minlength=self.n) - np.bincount(
+            removed, minlength=self.n
+        )
+        touched = np.flatnonzero(delta < 0)
+        lost = touched[
+            (self.in_degree[touched] > 0)
+            & (self.in_degree[touched] + delta[touched] <= 0)
+        ]
+        if lost.size:
+            raise RuntimeError(
+                f"upper-level projection would leave {lost.size} nodes without an in-edge"
+            )
 
 
 # --------------------------------------------------------------------------------------------------------------

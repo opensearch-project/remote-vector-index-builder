@@ -6,6 +6,7 @@
 # compatible open source license.
 
 import faiss
+import logging
 import pytest
 from typing import Dict, Any
 from unittest.mock import patch
@@ -250,6 +251,7 @@ class TestFaissIndexHNSWCagraBuilder:
             upper_level_ef_construction=256,
             upper_level_max_share=0.25,
             upper_level_protect_last_in_edge=False,
+            upper_level_skip_if_reachable=2.0,
         )
         calls = self._track_copyTo(mock_gpu_index)
 
@@ -266,6 +268,7 @@ class TestFaissIndexHNSWCagraBuilder:
             ef_construction=256,
             max_share=0.25,
             protect_last_in_edge=False,
+            skip_if_reachable=2.0,
         )
         assert result.cpu_index.base_level_only is True
         assert result.index_id_map.index is result.cpu_index
@@ -287,6 +290,7 @@ class TestFaissIndexHNSWCagraBuilder:
             "ef_construction": 512,
             "max_share": 0.5,
             "protect_last_in_edge": True,
+            "skip_if_reachable": 0.99,
         }
 
     def test_upper_level_projection_with_skip_stored_vectors(
@@ -373,15 +377,19 @@ class TestFaissIndexHNSWCagraBuilder:
         assert "vectors are required" in str(exc_info.value)
         mock_projection.assert_not_called()
 
-    def test_upper_level_projection_failure_fails_conversion(
-        self, mock_gpu_index, mock_index_id_map, sample_vectors
+    def test_upper_level_projection_failure_keeps_plain_graph(
+        self, mock_gpu_index, mock_index_id_map, sample_vectors, caplog
     ):
-        """An error in the projection surfaces as a conversion failure"""
+        """Fail-safe: an error in the projection is logged and the conversion returns the plain graph"""
         builder = FaissIndexHNSWCagraBuilder(project_link_to_base_layer=True, m=16)
 
-        with patch(PROJECTION_TARGET, side_effect=RuntimeError("boom")):
-            with pytest.raises(Exception) as exc_info:
-                self._convert(
+        with patch(PROJECTION_TARGET, side_effect=MemoryError("boom")):
+            with caplog.at_level(logging.WARNING):
+                result = self._convert(
                     builder, mock_gpu_index, mock_index_id_map, sample_vectors
                 )
-        assert "Failed to convert GPU index to CPU index: boom" in str(exc_info.value)
+
+        assert "Upper-level projection failed, keeping the plain CAGRA graph: boom" in (
+            caplog.text
+        )
+        assert result.index_id_map.index is result.cpu_index
