@@ -82,13 +82,20 @@ def project_upper_level(
         m: HNSW m of the index; layer 1 is HNSW's level 1 for M = m: promotion probability 1 / m, m links per
             node
         ef_construction: efConstruction of the layer-1 build
-        max_share: max share of a full base-level row that projected links may overwrite (0..1)
+        max_share: max share of a full base-level row that projected links may overwrite (0..1). Only the
+            row's lowest-ranked links are overwritten, and with protect_last_in_edge never a node's last
+            base-level in-edge, so no node becomes unreachable.
         protect_last_in_edge: never overwrite a slot holding its target's last base-level in-edge
         skip_if_reachable: skip the projection when at least this share of the nodes is reachable from one of a
             few random entry points (> 1: always project)
 
     Returns:
-        True if the projection ran, False if it was skipped. On an exception the graph is unchanged.
+        True if the projection ran, False if it was skipped or failed.
+
+    Raises:
+        ValueError: for invalid arguments. Any error during the projection itself (including MemoryError) is
+        logged as a warning instead and the base graph is left unchanged: it is only written once everything has
+        been computed and checked.
     """
     if not cpu_index.base_level_only:
         raise ValueError("upper-level projection requires base_level_only = True")
@@ -104,6 +111,34 @@ def project_upper_level(
             f"upper-level projection got {vectors.shape[0]} vectors for an index of {n}"
         )
 
+    try:
+        return _project_upper_level(
+            cpu_index,
+            vectors,
+            m,
+            ef_construction,
+            max_share,
+            protect_last_in_edge,
+            skip_if_reachable,
+        )
+    except Exception as e:
+        logger.warning(
+            f"Upper-level projection failed, the base graph is unchanged: {e}",
+            exc_info=True,
+        )
+        return False
+
+
+def _project_upper_level(
+    cpu_index: Any,
+    vectors: np.ndarray,
+    m: int,
+    ef_construction: int,
+    max_share: float,
+    protect_last_in_edge: bool,
+    skip_if_reachable: float,
+) -> bool:
+    n = int(cpu_index.ntotal)
     hnsw = cpu_index.hnsw
     neighbors, offsets = _vec_view(hnsw.neighbors), _vec_view(hnsw.offsets)
     nb0 = int(hnsw.nb_neighbors(0))

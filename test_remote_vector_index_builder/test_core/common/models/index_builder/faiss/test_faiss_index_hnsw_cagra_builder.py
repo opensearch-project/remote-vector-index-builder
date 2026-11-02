@@ -6,7 +6,6 @@
 # compatible open source license.
 
 import faiss
-import logging
 import pytest
 from typing import Dict, Any
 from unittest.mock import patch
@@ -377,19 +376,19 @@ class TestFaissIndexHNSWCagraBuilder:
         assert "vectors are required" in str(exc_info.value)
         mock_projection.assert_not_called()
 
-    def test_upper_level_projection_failure_keeps_plain_graph(
-        self, mock_gpu_index, mock_index_id_map, sample_vectors, caplog
+    def test_upper_level_projection_unexpected_error_fails_conversion(
+        self, mock_gpu_index, mock_index_id_map, sample_vectors
     ):
-        """Fail-safe: an error in the projection is logged and the conversion returns the plain graph"""
+        """The fail-safe lives in project_upper_level (it returns False and leaves the graph unchanged); the
+        builder does not swallow errors, so anything that still escapes fails the conversion
+        """
         builder = FaissIndexHNSWCagraBuilder(project_link_to_base_layer=True, m=16)
 
-        with patch(PROJECTION_TARGET, side_effect=MemoryError("boom")):
-            with caplog.at_level(logging.WARNING):
-                result = self._convert(
+        with patch(PROJECTION_TARGET, side_effect=ValueError("bad argument")):
+            with pytest.raises(Exception) as exc_info:
+                self._convert(
                     builder, mock_gpu_index, mock_index_id_map, sample_vectors
                 )
-
-        assert "Upper-level projection failed, keeping the plain CAGRA graph: boom" in (
-            caplog.text
+        assert "Failed to convert GPU index to CPU index: bad argument" in str(
+            exc_info.value
         )
-        assert result.index_id_map.index is result.cpu_index

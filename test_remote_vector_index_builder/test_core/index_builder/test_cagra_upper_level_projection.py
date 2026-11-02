@@ -5,6 +5,7 @@
 # this file be licensed under the Apache-2.0 license or a
 # compatible open source license.
 
+import logging
 from collections import deque
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -390,3 +391,30 @@ class TestProjectUpperLevel:
             with pytest.raises(RuntimeError, match="1 nodes without an in-edge"):
                 project_links(neighbors, offsets, 4, promoted, layer1, 0.5, True)
         np.testing.assert_array_equal(neighbors.reshape(table.shape), table)
+
+    @pytest.mark.parametrize(
+        "error", [MemoryError("out of memory"), RuntimeError("boom")]
+    )
+    def test_failure_leaves_graph_unchanged(self, error, caplog):
+        """Fail-safe: an error during the projection is logged, the graph is unchanged, and it returns False"""
+        table = self._two_rings()
+        cpu_index = self._cpu_index(table)
+        vectors = np.zeros((table.shape[0], 4), np.float32)
+
+        with patch.object(
+            projection, "_vec_view", side_effect=lambda v: v
+        ), patch.object(
+            projection, "draw_promoted", return_value=np.array([3, 60], dtype=np.int32)
+        ), patch.object(
+            projection, "build_layer1", side_effect=error
+        ):
+            with caplog.at_level(logging.WARNING):
+                ran = project_upper_level(cpu_index, vectors, m=2, ef_construction=16)
+
+        assert ran is False
+        assert (
+            "Upper-level projection failed, the base graph is unchanged" in caplog.text
+        )
+        np.testing.assert_array_equal(
+            cpu_index.hnsw.neighbors.reshape(table.shape), table
+        )

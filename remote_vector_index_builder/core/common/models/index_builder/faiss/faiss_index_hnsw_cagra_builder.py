@@ -51,7 +51,7 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
     # an HNSW layer 1 over a promoted subset of the vectors and projects its links
     # into the base level, so graphs of well-separated clusters stay connected
     # (see core.index_builder.faiss.cagra_upper_level_projection).
-    # The index stays base-level only. Not supported for binary vectors.
+    # The index stays base-level only. Not supported for binary vectors yet.
     project_link_to_base_layer: bool = False
 
     # HNSW m of the index; required when project_link_to_base_layer is true. Layer 1 is
@@ -90,35 +90,23 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
 
         return cls(**params)
 
-    def _project_link_to_base_layer(self, cpu_index, vectors: Optional[np.ndarray]):
-        """Projects HNSW layer-1 links into the base level of cpu_index (in place)."""
+    def _project_link_to_base_layer(self, cpu_index, vectors: np.ndarray):
+        """Projects HNSW layer-1 links into the base level of cpu_index (in place). project_upper_level
+        leaves the graph unchanged if the projection fails, so the build continues with the plain graph.
+        """
         if self.m <= 0:
             raise ValueError(
                 "FaissIndexHNSWCagraBuilder: m must be positive when project_link_to_base_layer is true"
             )
-        if vectors is None:
-            raise ValueError(
-                "FaissIndexHNSWCagraBuilder: the dataset vectors are required when "
-                "project_link_to_base_layer is true"
-            )
-        # Fail-safe: the projection only improves connectivity, so on any error the plain CAGRA graph
-        # (left unchanged by project_upper_level) is kept and the build continues.
-        try:
-            project_upper_level(
-                cpu_index,
-                vectors,
-                m=self.m,
-                ef_construction=self.upper_level_ef_construction
-                or self.ef_construction,
-                max_share=self.upper_level_max_share,
-                protect_last_in_edge=self.upper_level_protect_last_in_edge,
-                skip_if_reachable=self.upper_level_skip_if_reachable,
-            )
-        except Exception as e:
-            logger.warning(
-                f"Upper-level projection failed, keeping the plain CAGRA graph: {e}",
-                exc_info=True,
-            )
+        project_upper_level(
+            cpu_index,
+            vectors,
+            m=self.m,
+            ef_construction=self.upper_level_ef_construction or self.ef_construction,
+            max_share=self.upper_level_max_share,
+            protect_last_in_edge=self.upper_level_protect_last_in_edge,
+            skip_if_reachable=self.upper_level_skip_if_reachable,
+        )
 
     def _do_convert_gpu_to_cpu_index(
         self,
@@ -149,6 +137,11 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
                 faiss_gpu_build_index_output.gpu_index.copyTo(cpu_index)
 
             if self.project_link_to_base_layer and self.base_level_only:
+                if vectors is None:
+                    raise ValueError(
+                        "FaissIndexHNSWCagraBuilder: the dataset vectors are required when "
+                        "project_link_to_base_layer is true"
+                    )
                 self._project_link_to_base_layer(cpu_index, vectors)
 
             # Remove reference of GPU Index from the IndexIDMap
@@ -240,4 +233,6 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
                 faiss_gpu_build_index_output, vectors
             )
 
+        # project_link_to_base_layer is not supported for binary vectors yet: they are converted to an
+        # IndexBinaryHNSWCagra (Hamming distance), which needs its own layer-1 build.
         return self._do_convert_gpu_to_cpu_binary_index(faiss_gpu_build_index_output)

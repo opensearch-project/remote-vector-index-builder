@@ -98,7 +98,7 @@ class AlgorithmParameters(BaseModel):
             1 / ln(m)) and gets m links, i.e. the level 1 a CPU HNSW with the
             same m would have. The index stays base-level only. Graphs that are
             already well connected are left unchanged.
-            Ignored for binary vectors. Defaults to False.
+            Not supported for binary vectors yet (ignored). Defaults to False.
     Note:
         The class is configured to allow extra attributes using the ConfigDict class.
     """
