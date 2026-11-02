@@ -162,6 +162,38 @@ class TestProjectLinks:
         assert unprotected[0].tolist() == [1, 2, 3, 5]
         assert in_degree(unprotected)[4] == 0
 
+    @staticmethod
+    def _seven_nodes():
+        """7 nodes, 4 slots each, every row full"""
+        return np.array(
+            [[1, 2, 3, 4], [2, 3, 4, 0], [3, 4, 0, 1], [4, 0, 1, 2]]
+            + [[0, 1, 2, 3], [1, 2, 3, 4], [0, 2, 3, 4]],
+            dtype=np.int32,
+        )
+
+    def test_row_keeps_its_nearest_layer1_neighbour_first(self):
+        """Room for one link (cap 1 of 4): the first entry of the row's own layer-1 list wins"""
+        table = self._seven_nodes()
+        promoted = np.array([0, 5, 6], dtype=np.int32)
+        layer1 = np.array(
+            [[2, 1], [-1, -1], [-1, -1]], dtype=np.int32
+        )  # 0 lists 6, then 5
+
+        result, _ = run_projection(table, promoted, layer1, 0.25, False)
+
+        assert 6 in result[0] and 5 not in result[0]
+
+    def test_row_prefers_the_node_that_lists_it_highest(self):
+        """No own links: of two nodes listing the row, the one listing it first wins"""
+        table = self._seven_nodes()
+        promoted = np.array([0, 5, 6], dtype=np.int32)
+        # 5 lists 0 first; 6 lists 5, then 0
+        layer1 = np.array([[-1, -1], [0, -1], [1, 0]], dtype=np.int32)
+
+        result, _ = run_projection(table, promoted, layer1, 0.25, False)
+
+        assert 5 in result[0] and 6 not in result[0]
+
     def test_zero_max_share_leaves_full_rows_unchanged(self):
         rng = np.random.default_rng(3)
         table, promoted, layer1 = random_case(

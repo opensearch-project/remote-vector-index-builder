@@ -34,7 +34,7 @@ One vectorized pass over all promoted rows, no iteration. Links whose target is 
 dropped, and that slot is kept. A node that has an in-edge from a row that is not promoted can never lose its
 last in-edge (only promoted rows change); for the other nodes every slot holding them is kept. Each row then
 writes its links into its empty slots and its overwritable slots from the end. When a row has more links than
-room, which links win is arbitrary (by target id).
+room, its own layer-1 neighbours win first (nearest first), then the nodes that list it highest.
 """
 
 import logging
@@ -286,14 +286,27 @@ def project_links(
     n = len(offsets) - 1
     npro = len(promoted)
 
-    # 1. Every layer-1 link a-b gives row a the target b and row b the target a. Keys row * npro + target are
-    #    deduplicated (mutual links) and sorted, so the links come grouped by row.
-    src = np.repeat(np.arange(npro, dtype=np.int64), layer1.shape[1])
+    # 1. Every layer-1 link a-b gives row a the target b and row b the target a. Each link gets a priority for
+    #    when its row runs out of room: the row's own layer-1 neighbours first, in HNSW's list order (nearest
+    #    first), then the nodes that list the row, by how high they list it. Mutual links keep the better one.
+    #    Keys row * npro + target come out sorted, so the links are grouped by row.
+    k = layer1.shape[1]
+    src = np.repeat(np.arange(npro, dtype=np.int64), k)
     dst = layer1.ravel().astype(np.int64)
+    slot_in_list = np.tile(np.arange(k, dtype=np.int64), npro)
     valid = (dst >= 0) & (dst != src)
-    src, dst = src[valid], dst[valid]
-    keys = np.unique(np.concatenate((src * npro + dst, dst * npro + src)))
-    del src, dst, valid
+    src, dst, slot_in_list = src[valid], dst[valid], slot_in_list[valid]
+    keyed = np.unique(
+        np.concatenate(
+            (
+                (src * npro + dst) * (2 * k) + slot_in_list,  # own neighbour
+                (dst * npro + src) * (2 * k) + k + slot_in_list,  # listed by src
+            )
+        )
+    )
+    first = np.r_[True, keyed[1:] // (2 * k) != keyed[:-1] // (2 * k)]
+    keys, priority = keyed[first] // (2 * k), keyed[first] % (2 * k)
+    del src, dst, slot_in_list, valid, keyed, first
 
     # 2. The level-0 rows of the promoted nodes.
     row_cols = (
@@ -315,9 +328,11 @@ def project_links(
     keep[slots[found]] = True
     present = np.zeros(keys.size, dtype=bool)
     present[hit[found]] = True
-    keys = keys[~present]
+    keys, priority = keys[~present], priority[~present]
     link_row, target = keys // npro, promoted[keys % npro]
-    del keys, present, hit, found, slots, slot_keys
+    by_priority = np.argsort(link_row * (2 * k) + priority, kind="stable")
+    link_row, target = link_row[by_priority], target[by_priority]
+    del keys, priority, by_priority, present, hit, found, slots, slot_keys
 
     # 4. Last in-edge protection, conservative so that no iteration is needed: only promoted rows lose slots,
     #    so a node keeps an in-edge for sure if one comes from a row that is not promoted. For the other nodes
