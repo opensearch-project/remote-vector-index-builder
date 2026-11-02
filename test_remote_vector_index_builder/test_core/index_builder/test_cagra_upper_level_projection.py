@@ -233,7 +233,7 @@ class TestProjectUpperLevel:
             )
 
         assert ran is True
-        mock_draw.assert_called_once_with(n, 8)
+        mock_draw.assert_called_once_with(n, 4)
         layer1_vectors, metric, links_per_node, ef_construction = mock_layer1.call_args[
             0
         ]
@@ -242,7 +242,7 @@ class TestProjectUpperLevel:
         np.testing.assert_array_equal(
             layer1_vectors, vectors[promoted].astype(np.float32)
         )
-        assert (metric, links_per_node, ef_construction) == (1, 8, 64)
+        assert (metric, links_per_node, ef_construction) == (1, 4, 64)
 
         expected, written = run_projection(table, promoted, layer1, 0.5, True)
         assert written > 0

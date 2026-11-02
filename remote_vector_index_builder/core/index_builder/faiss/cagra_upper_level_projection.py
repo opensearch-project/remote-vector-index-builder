@@ -12,10 +12,12 @@ On datasets made of well-separated clusters the k-NN graph CAGRA prunes from is 
 CAGRA graph splits into components and base-level-only search (random entry points) misses most of them. After
 the plain ``GpuIndexCagra.copyTo`` this module:
 
-1. promotes nodes with faiss's own HNSW level generator, as for an HNSW with ``2 * m`` links per node
-   (probability ``1 / (2 * m)``, faiss rng seed 12345);
-2. builds a temporary single-level ``IndexHNSWFlat`` (``2 * m`` links per node) over the promoted vectors.
-   HNSW's incremental insertion creates near-neighbour links between clusters, which a pruned k-NN graph lacks;
+1. promotes nodes to layer 1 exactly as a faiss HNSW with ``M = m`` (the index's HNSW m) assigns levels: faiss's
+   level generator with level multiplier ``1 / ln(M)`` (``HNSW::set_default_probas``, rng seed 12345), so a node
+   reaches level 1 with probability ``1 / M``;
+2. builds a temporary single-level ``IndexHNSWFlat`` over the promoted vectors with ``M`` links per node, as HNSW's
+   levels above 0 have. HNSW's incremental insertion creates near-neighbour links between clusters, which a pruned
+   k-NN graph lacks;
 3. projects every layer-1 link a-b into level 0 as a->b and b->a: empty slots first, then the tail of full rows
    (CAGRA's lowest-ranked links), at most ``max_share`` of a full row, never removing a node's last in-edge.
    Only the promoted nodes' rows change.
@@ -24,6 +26,14 @@ Before any of this, a gate measures how much of the base graph search can reach 
 (breadth-first search over the neighbour table). Well-connected graphs are left as they are, so they do not pay
 for the layer-1 build. The graph is only written once the whole projection has been computed and checked (no
 node newly left without an in-edge); on any error it is left unchanged.
+
+Why HNSW's own rule for ``M = m`` (promotion ``1 / m``, ``m`` links): layer 1 is then the level 1 that a CPU HNSW
+built with the same ``m`` would have, the structure OpenSearch's CPU HNSW relies on to get between clusters, rather
+than a choice tuned for this module. It also gives more, shorter-reaching links between islands than promoting
+``1 / (2 * m)`` nodes with ``2 * m`` links each (about the same number of links in total, spread over twice as many
+nodes), which is what a greedy search with a small budget needs: on a 300k x 1024 clustered corpus at m = 16,
+recall@64 at ef_search 100 rose from 0.73 / 0.95 to 0.89 / 0.996 (8 real / 200 corpus queries; CPU HNSW 0.93 /
+0.995), for a layer-1 build of 2.4 s instead of 1.0 s.
 
 The index stays base-level only; the file format is unchanged. It needs only stock faiss: the level-0 graph is
 read and written in place through zero-copy numpy views of ``hnsw.neighbors`` / ``hnsw.offsets``.
@@ -38,7 +48,6 @@ room, which links win is arbitrary (by target id).
 """
 
 import logging
-import math
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -70,7 +79,8 @@ def project_upper_level(
     Args:
         cpu_index: base-level-only faiss.IndexHNSWCagra, from the plain GpuIndexCagra.copyTo
         vectors: the host array the GPU index was built from ([n, d], float32, float16 or int8), in id order
-        m: HNSW m of the index; layer 1 has 2 * m links per node and promotion probability 1 / (2 * m)
+        m: HNSW m of the index; layer 1 is HNSW's level 1 for M = m: promotion probability 1 / m, m links per
+            node
         ef_construction: efConstruction of the layer-1 build
         max_share: max share of a full base-level row that projected links may overwrite (0..1)
         protect_last_in_edge: never overwrite a slot holding its target's last base-level in-edge
@@ -113,16 +123,13 @@ def project_upper_level(
         return False
 
     t0 = time.perf_counter()
-    links_per_node = 2 * m
-    promoted = draw_promoted(n, links_per_node)
+    promoted = draw_promoted(n, m)
     if len(promoted) < 2:
         logger.debug(f"Upper-level projection: {len(promoted)} promoted, nothing to do")
         return False
 
     promoted_vectors = np.ascontiguousarray(vectors[promoted], dtype=np.float32)
-    layer1 = build_layer1(
-        promoted_vectors, cpu_index.metric_type, links_per_node, ef_construction
-    )
+    layer1 = build_layer1(promoted_vectors, cpu_index.metric_type, m, ef_construction)
     del promoted_vectors
     t1 = time.perf_counter()
 
@@ -202,18 +209,16 @@ def _vec_view(vector: Any) -> np.ndarray:
     return faiss.rev_swig_ptr(vector.data(), vector.size())
 
 
-def draw_promoted(n: int, links_per_node: int) -> np.ndarray:
+def draw_promoted(n: int, M: int) -> np.ndarray:
     """
-    Ids promoted to layer 1, drawn like faiss's HNSW does for an index with ``links_per_node`` links per node:
-    faiss.HNSW rng (seed 12345), random_level() for ids 0..n-1 in order, level >= 1 is promoted.
+    Ids promoted to layer 1, drawn exactly as faiss's HNSW with parameter ``M`` assigns levels: faiss.HNSW(M) rng
+    (seed 12345), level multiplier 1 / ln(M), random_level() for ids 0..n-1 in order; level >= 1 is promoted, which
+    happens with probability 1 / M.
 
     HNSW.prepare_level_tab runs the draw in C++; the per-level neighbour counts are zeroed first so it does not
     allocate neighbour tables.
     """
-    draw = faiss.HNSW(links_per_node)
-    draw.assign_probas.clear()
-    draw.cum_nneighbor_per_level.clear()
-    draw.set_default_probas(links_per_node, 1.0 / math.log(links_per_node))
+    draw = faiss.HNSW(M)  # set_default_probas(M, 1 / ln(M))
     _vec_view(draw.cum_nneighbor_per_level)[:] = 0
     draw.prepare_level_tab(n, False)  # levels[i] = random_level() + 1
     levels = _vec_view(draw.levels)
@@ -223,32 +228,29 @@ def draw_promoted(n: int, links_per_node: int) -> np.ndarray:
 
 
 def build_layer1(
-    vectors: np.ndarray, metric: int, links_per_node: int, ef_construction: int
+    vectors: np.ndarray, metric: int, M: int, ef_construction: int
 ) -> np.ndarray:
     """
-    Single-level IndexHNSWFlat over ``vectors`` (fp32, [np, d]). Returns its graph [np, links_per_node] (int32
-    positions into ``vectors``, -1 = empty slot); the flat storage and the HNSW are freed before returning.
+    HNSW level 1 over ``vectors`` (fp32, [np, d]): a single-level IndexHNSWFlat with ``M`` links per node, as HNSW's
+    levels above 0 have. Returns its graph [np, M] (int32 positions into ``vectors``, -1 = empty slot); the flat
+    storage and the HNSW are freed before returning.
     """
     npro, d = vectors.shape
-    index = faiss.IndexHNSWFlat(d, links_per_node, metric)
+    index = faiss.IndexHNSWFlat(d, M, metric)
     hnsw = index.hnsw
     hnsw.assign_probas.clear()
     hnsw.cum_nneighbor_per_level.clear()
     hnsw.cum_nneighbor_per_level.push_back(0)
-    hnsw.cum_nneighbor_per_level.push_back(links_per_node)
+    hnsw.cum_nneighbor_per_level.push_back(M)
     faiss.copy_array_to_vector(
         np.ones(npro, dtype=np.int32), hnsw.levels
     )  # every node on level 0 only
     hnsw.efConstruction = ef_construction
     index.add(vectors)
     offsets = _vec_view(hnsw.offsets)
-    if int(offsets[-1]) != npro * links_per_node:
+    if int(offsets[-1]) != npro * M:
         raise RuntimeError("layer-1 HNSW has non-uniform neighbour lists")
-    graph = (
-        _vec_view(hnsw.neighbors)[: npro * links_per_node]
-        .reshape(npro, links_per_node)
-        .copy()
-    )
+    graph = _vec_view(hnsw.neighbors)[: npro * M].reshape(npro, M).copy()
     del offsets, hnsw, index
     return graph
 
@@ -276,7 +278,7 @@ def project_links(
         offsets: per-node offset of its row in ``neighbors`` (n + 1 entries)
         nb0: level-0 slots per node
         promoted: sorted ids of the layer-1 nodes
-        layer1: layer-1 graph [len(promoted), links_per_node], positions into ``promoted``, -1 = empty
+        layer1: layer-1 graph [len(promoted), M], positions into ``promoted``, -1 = empty
         max_share: max share of a full row that may be overwritten
         protect_last_in_edge: never overwrite a slot holding its target's last in-edge
 

@@ -91,10 +91,14 @@ class AlgorithmParameters(BaseModel):
             more memory consumption. Defaults to 16.
         project_link_to_base_layer (bool): When true, the conversion of the
             GPU (CAGRA) graph to the CPU HNSW index also builds an HNSW layer 1
-            over a promoted subset of the vectors (promotion 1 / (2 * m),
-            2 * m links per node) and projects its links into the base layer,
-            so graphs of well-separated clusters stay connected. The index
-            stays base-level only. Ignored for binary vectors. Defaults to False.
+            over a promoted subset of the vectors and projects its links into the
+            base layer, so graphs of well-separated clusters stay connected.
+            Layer 1 is built exactly like level 1 of a faiss HNSW with M = m: a
+            node is promoted with probability 1 / m (faiss's level multiplier
+            1 / ln(m)) and gets m links, i.e. the level 1 a CPU HNSW with the
+            same m would have. The index stays base-level only. Graphs that are
+            already well connected are left unchanged.
+            Ignored for binary vectors. Defaults to False.
     Note:
         The class is configured to allow extra attributes using the ConfigDict class.
     """

@@ -55,7 +55,8 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
     project_link_to_base_layer: bool = False
 
     # HNSW m of the index; required when project_link_to_base_layer is true. Layer 1 is
-    # built like an HNSW with 2 * m links per node and promotion probability 1 / (2 * m).
+    # built like level 1 of a faiss HNSW with M = m (promotion probability 1 / m, m links per node),
+    # the level 1 a CPU HNSW with the same m would have.
     m: int = 0
 
     # efConstruction of the layer-1 build; 0 = ef_construction

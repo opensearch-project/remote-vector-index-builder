@@ -156,7 +156,7 @@ class FaissIndexBuildService(IndexBuildService):
                 # GpuIndexBinaryCagra has no such projection
                 "project_link_to_base_layer": algorithm_parameters.project_link_to_base_layer
                 and index_build_parameters.data_type != DataType.BINARY,
-                # the m the CAGRA graph was built with (layer 1 uses 2 * m links)
+                # the m the CAGRA graph was built with (layer 1 is HNSW level 1 for M = m)
                 "m": m,
             }
             faiss_index_hnsw_cagra_builder = FaissIndexHNSWCagraBuilder.from_dict(
