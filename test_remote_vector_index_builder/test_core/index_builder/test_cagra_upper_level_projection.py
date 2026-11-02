@@ -229,11 +229,9 @@ class TestProjectUpperLevel:
         ) as mock_draw, patch.object(
             projection, "build_layer1", return_value=layer1
         ) as mock_layer1:
-            ran = project_upper_level(
+            project_upper_level(
                 cpu_index, vectors, m=4, ef_construction=64, skip_if_reachable=2.0
             )
-
-        assert ran is True
         mock_draw.assert_called_once_with(n, 4)
         layer1_vectors, metric, links_per_node, ef_construction = mock_layer1.call_args[
             0
@@ -262,15 +260,13 @@ class TestProjectUpperLevel:
         ), patch.object(
             projection, "build_layer1"
         ) as mock_layer1:
-            ran = project_upper_level(
+            project_upper_level(
                 cpu_index,
                 np.zeros((2, 4), np.float32),
                 m=16,
                 ef_construction=100,
                 skip_if_reachable=2.0,
             )
-
-        assert ran is False
         mock_layer1.assert_not_called()
         np.testing.assert_array_equal(cpu_index.hnsw.neighbors, [1, 0])
 
@@ -320,9 +316,7 @@ class TestProjectUpperLevel:
         with patch.object(
             projection, "_vec_view", side_effect=lambda v: v
         ), patch.object(projection, "build_layer1") as mock_layer1:
-            ran = project_upper_level(cpu_index, vectors, m=2, ef_construction=16)
-
-        assert ran is False
+            project_upper_level(cpu_index, vectors, m=2, ef_construction=16)
         mock_layer1.assert_not_called()
         np.testing.assert_array_equal(
             cpu_index.hnsw.neighbors.reshape(table.shape), table
@@ -344,9 +338,7 @@ class TestProjectUpperLevel:
             "build_layer1",
             return_value=np.array([[1], [0]], dtype=np.int32),
         ):
-            ran = project_upper_level(cpu_index, vectors, m=2, ef_construction=16)
-
-        assert ran is True
+            project_upper_level(cpu_index, vectors, m=2, ef_construction=16)
         result = cpu_index.hnsw.neighbors.reshape(table.shape)
         assert 60 in result[3] and 3 in result[60]
 
@@ -409,9 +401,7 @@ class TestProjectUpperLevel:
             projection, "build_layer1", side_effect=error
         ):
             with caplog.at_level(logging.WARNING):
-                ran = project_upper_level(cpu_index, vectors, m=2, ef_construction=16)
-
-        assert ran is False
+                project_upper_level(cpu_index, vectors, m=2, ef_construction=16)
         assert (
             "Upper-level projection failed, the base graph is unchanged" in caplog.text
         )

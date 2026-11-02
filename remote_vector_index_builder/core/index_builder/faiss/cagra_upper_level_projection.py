@@ -71,7 +71,7 @@ def project_upper_level(
     max_share: float = 0.5,
     protect_last_in_edge: bool = True,
     skip_if_reachable: float = 0.99,
-) -> bool:
+) -> None:
     """
     Builds an HNSW layer 1 over a promoted subset of ``vectors`` and projects its links into the base level of
     ``cpu_index`` in place, unless the base graph is already well connected.
@@ -88,9 +88,6 @@ def project_upper_level(
         protect_last_in_edge: never overwrite a slot holding its target's last base-level in-edge
         skip_if_reachable: skip the projection when at least this share of the nodes is reachable from one of a
             few random entry points (> 1: always project)
-
-    Returns:
-        True if the projection ran, False if it was skipped or failed.
 
     Raises:
         ValueError: for invalid arguments. Any error during the projection itself (including MemoryError) is
@@ -112,7 +109,7 @@ def project_upper_level(
         )
 
     try:
-        return _project_upper_level(
+        _project_upper_level(
             cpu_index,
             vectors,
             m,
@@ -126,7 +123,6 @@ def project_upper_level(
             f"Upper-level projection failed, the base graph is unchanged: {e}",
             exc_info=True,
         )
-        return False
 
 
 def _project_upper_level(
@@ -137,7 +133,7 @@ def _project_upper_level(
     max_share: float,
     protect_last_in_edge: bool,
     skip_if_reachable: float,
-) -> bool:
+) -> None:
     n = int(cpu_index.ntotal)
     hnsw = cpu_index.hnsw
     neighbors, offsets = _vec_view(hnsw.neighbors), _vec_view(hnsw.offsets)
@@ -155,13 +151,13 @@ def _project_upper_level(
             f"Upper-level projection skipped: {reachable:.2%} of {n} nodes reachable "
             f"(gate_ms={t_gate * 1000:.1f})"
         )
-        return False
+        return
 
     t0 = time.perf_counter()
     promoted = draw_promoted(n, m)
     if len(promoted) < 2:
         logger.debug(f"Upper-level projection: {len(promoted)} promoted, nothing to do")
-        return False
+        return
 
     promoted_vectors = np.ascontiguousarray(vectors[promoted], dtype=np.float32)
     layer1 = build_layer1(promoted_vectors, cpu_index.metric_type, m, ef_construction)
@@ -183,7 +179,6 @@ def _project_upper_level(
         f"promoted={len(promoted)} links_added={added} gate_ms={t_gate * 1000:.1f} "
         f"layer1_build_ms={(t1 - t0) * 1000:.1f} projection_ms={(t2 - t1) * 1000:.1f}"
     )
-    return True
 
 
 # --------------------------------------------------------------------------------------------------------------
