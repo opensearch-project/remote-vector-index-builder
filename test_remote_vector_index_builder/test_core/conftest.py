@@ -271,6 +271,8 @@ class FaissMock(ModuleType):
         self.write_index_binary = self._write_index_binary
         self.index_binary_gpu_to_cpu = self._index_binary_gpu_to_cpu
         self.PyCallbackIOWriter = self._PyCallbackIOWriter
+        self.swig_ptr = self._swig_ptr
+        self.ivec_hist = self._ivec_hist
 
     def _omp_set_num_threads(self, num_threads: int) -> None:
         self._num_threads = num_threads
@@ -321,6 +323,17 @@ class FaissMock(ModuleType):
 
     def _PyCallbackIOWriter(self, callback):
         return MockPyCallbackIOWriter(callback)
+
+    @staticmethod
+    def _swig_ptr(array):
+        """faiss.swig_ptr: the mock passes the numpy array itself as the pointer"""
+        return array
+
+    @staticmethod
+    def _ivec_hist(n, values, vmax, hist):
+        """faiss.ivec_hist: hist[v] = count of v in values[:n] for 0 <= v < vmax"""
+        v = values[:n]
+        hist[:] = np.bincount(v[(v >= 0) & (v < vmax)], minlength=vmax)
 
 
 # Create the mock and patch faiss

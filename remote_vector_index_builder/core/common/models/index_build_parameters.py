@@ -89,6 +89,16 @@ class AlgorithmParameters(BaseModel):
         m (int): Number of bi-directional links created for every new element
             during construction. Higher values lead to better search speed but
             more memory consumption. Defaults to 16.
+        project_link_to_base_layer (bool): When true, the conversion of the
+            GPU (CAGRA) graph to the CPU HNSW index also builds an HNSW layer 1
+            over a promoted subset of the vectors and projects its links into the
+            base layer, so graphs of well-separated clusters stay connected.
+            Layer 1 is built exactly like level 1 of a faiss HNSW with M = m: a
+            node is promoted with probability 1 / m (faiss's level multiplier
+            1 / ln(m)) and gets m links, i.e. the level 1 a CPU HNSW with the
+            same m would have. The index stays base-level only. Graphs that are
+            already well connected are left unchanged.
+            Not supported for binary vectors yet (ignored). Defaults to False.
     Note:
         The class is configured to allow extra attributes using the ConfigDict class.
     """
@@ -96,6 +106,7 @@ class AlgorithmParameters(BaseModel):
     ef_construction: int = 100
     ef_search: int = 100
     m: int = 16
+    project_link_to_base_layer: bool = False
     model_config = ConfigDict(extra="allow")
 
 

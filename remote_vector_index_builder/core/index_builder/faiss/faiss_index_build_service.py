@@ -115,12 +115,11 @@ class FaissIndexBuildService(IndexBuildService):
                     "intermediate_graph_degree": m * GRAPH_DEGREE_PER_M,
                 }
             else:
+                m = index_build_parameters.index_parameters.algorithm_parameters.m
                 gpu_index_config_params = {
                     "graph_build_algo": CagraGraphBuildAlgo.NN_DESCENT,
-                    "graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
-                    * GRAPH_DEGREE_PER_M,
-                    "intermediate_graph_degree": index_build_parameters.index_parameters.algorithm_parameters.m
-                    * GRAPH_DEGREE_PER_M,
+                    "graph_degree": m * GRAPH_DEGREE_PER_M,
+                    "intermediate_graph_degree": m * GRAPH_DEGREE_PER_M,
                 }
 
             faiss_gpu_index_cagra_builder = FaissGPUIndexCagraBuilder.from_dict(
@@ -145,11 +144,19 @@ class FaissIndexBuildService(IndexBuildService):
 
             # Step 2a: Create a structured CPUIndexConfig having defaults,
             # from a partial dictionary set from index build params
+            algorithm_parameters = (
+                index_build_parameters.index_parameters.algorithm_parameters
+            )
             cpu_index_config_params = {
                 "ef_search": index_build_parameters.index_parameters.algorithm_parameters.ef_search,
                 "ef_construction": index_build_parameters.index_parameters.algorithm_parameters.ef_construction,
                 "vector_dtype": index_build_parameters.data_type,
                 "skip_stored_vectors": index_build_parameters.skip_stored_vectors,
+                # requested through the API (algorithm_parameters, next to m); binary vectors are
+                # never projected (FaissIndexHNSWCagraBuilder converts them without it)
+                "project_link_to_base_layer": algorithm_parameters.project_link_to_base_layer,
+                # the m the CAGRA graph was built with (layer 1 is HNSW level 1 for M = m)
+                "m": m,
             }
             faiss_index_hnsw_cagra_builder = FaissIndexHNSWCagraBuilder.from_dict(
                 cpu_index_config_params
@@ -161,7 +168,7 @@ class FaissIndexBuildService(IndexBuildService):
             t1 = timer()
             faiss_cpu_build_index_output = (
                 faiss_index_hnsw_cagra_builder.convert_gpu_to_cpu_index(
-                    faiss_gpu_build_index_output
+                    faiss_gpu_build_index_output, vectors_dataset.vectors
                 )
             )
             t2 = timer()
