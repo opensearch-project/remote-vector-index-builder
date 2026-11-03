@@ -457,17 +457,13 @@ class TestFaissIndexBuildService:
         self, service, binary_vectors_dataset, binary_index_build_parameters
     ):
         """Binary builds never project, even when the request asks for it"""
-        with patch(
-            "core.common.models.index_builder.faiss.FaissIndexHNSWCagraBuilder.from_dict",
-            wraps=FaissIndexHNSWCagraBuilder.from_dict,
-        ) as mock_cpu_from_dict:
+        with patch(PROJECTION_TARGET) as mock_projection:
             service.build_index(
                 self._with_projection(binary_index_build_parameters),
                 binary_vectors_dataset,
             )
 
-            cpu_call_args = mock_cpu_from_dict.call_args[0][0]
-            assert cpu_call_args["project_link_to_base_layer"] is False
+        mock_projection.assert_not_called()
 
     def test_write_cpu_index_skip_stored_vectors_passes_io_flag(
         self,
