@@ -27,6 +27,8 @@ RUN cd /tmp/faiss && patch -p1 < /tmp/patches/0002-Do-not-auto-widen-intermediat
 # cuVS 26.08 changed the CAGRA dataset API. Apply the compatibility patch
 # shipped by cuVS for FAISS v1.14.3.
 # https://github.com/rapidsai/cuvs/blob/v26.08.01/cpp/cmake/patches/faiss-1.14-cuvs-26.08.diff
+# Modified so that CuvsCagra::train() builds from host memory when store_dataset is false,
+# instead of first copying the whole dataset to the GPU (which fails for datasets larger than GPU memory).
 RUN cd /tmp/faiss && patch -p1 < /tmp/patches/0003-faiss-1.14-cuvs-26.08.patch
 COPY ./base_image/build_scripts/build-faiss.sh /tmp/build-faiss.sh
 
