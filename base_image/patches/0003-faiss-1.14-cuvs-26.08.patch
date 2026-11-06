@@ -174,7 +174,11 @@ index 755817f..0eb03ae 100644
                  raft::make_const_mdspan(knn_graph_copy.view()));
      } else {
          FAISS_THROW_MSG(
-@@ -203,17 +206,23 @@ void CuvsCagra<data_t>::train(idx_t n, const data_t* x) {
+@@ -203,17 +206,48 @@ void CuvsCagra<data_t>::train(idx_t n, const data_t* x) {
++    // Release any previous index (and the host-built graph it may view).
++    cuvs_index.reset();
++    host_built_index_.reset();
++
      if (getDeviceForAddress(x) >= 0) {
          auto dataset = raft::make_device_matrix_view<const data_t, int64_t>(
                  x, n, dim_);
@@ -186,7 +190,8 @@ index 755817f..0eb03ae 100644
 -                        raft_handle, index_params_, dataset));
 +                        raft_handle, index_params_, dataset_view));
 +        store_dataset_ = true;
-     } else {
+-    } else {
++    } else if (store_dataset_) {
          auto dataset =
                  raft::make_host_matrix_view<const data_t, int64_t>(x, n, dim_);
 +        host_to_device_dataset_ =
@@ -197,10 +202,31 @@ index 755817f..0eb03ae 100644
 -                        raft_handle, index_params_, dataset));
 +                        raft_handle, index_params_,
 +                        host_to_device_dataset_->as_dataset_view()));
++    } else {
++        // Build the graph directly from host memory without copying the
++        // dataset to the device, so datasets larger than GPU memory can be
++        // built. search() attaches the dataset on first use.
++        auto dataset =
++                raft::make_host_matrix_view<const data_t, int64_t>(x, n, dim_);
++        auto graph_only_params = index_params_;
++        graph_only_params.attach_dataset_on_build = false;
++        host_built_index_ = std::make_unique<
++                cuvs::neighbors::cagra::host_standard_index<data_t, uint32_t>>(
++                cuvs::neighbors::cagra::build(
++                        raft_handle,
++                        graph_only_params,
++                        cuvs::neighbors::make_host_standard_dataset_view(
++                                dataset)));
++        // cuVS 26.08 cannot move a host index into the device index type, so
++        // give the device index a view of the graph owned by host_built_index_.
++        cuvs_index = std::make_shared<
++                cuvs::neighbors::cagra::index<data_t, uint32_t>>(
++                raft_handle, metricFaissToCuvs(metric_, false));
++        cuvs_index->update_graph(raft_handle, host_built_index_->graph());
      }
  }
 
-@@ -248,13 +257,19 @@ void CuvsCagra<data_t>::search(
+@@ -248,13 +282,19 @@ void CuvsCagra<data_t>::search(
 
      if (!store_dataset_) {
          if (getDeviceForAddress(storage_) >= 0) {
@@ -223,10 +249,11 @@ index 755817f..0eb03ae 100644
          }
          store_dataset_ = true;
      }
-@@ -303,6 +318,7 @@ void CuvsCagra<data_t>::search(
+@@ -303,6 +343,8 @@ void CuvsCagra<data_t>::search(
  template <typename data_t>
  void CuvsCagra<data_t>::reset() {
      cuvs_index.reset();
++    host_built_index_.reset();
 +    host_to_device_dataset_.reset();
  }
 
@@ -251,13 +278,18 @@ index a10e9fb..b5c2bcd 100644
 
  namespace faiss {
 
-@@ -147,6 +149,10 @@ class CuvsCagra {
+@@ -147,6 +149,15 @@ class CuvsCagra {
      /// Parameter to use MST optimization to guarantee graph connectivity
      bool guarantee_connectivity_ = false;
 
 +    /// Device padded copy when `storage_` is host memory (KNN-graph ctor path).
 +    std::unique_ptr<cuvs::neighbors::device_padded_dataset<data_t, int64_t>>
 +            host_to_device_dataset_;
++
++    /// Graph built from host memory when `store_dataset_` is false; owns the
++    /// graph that `cuvs_index` views. Must outlive `cuvs_index`.
++    std::unique_ptr<cuvs::neighbors::cagra::host_standard_index<data_t, uint32_t>>
++            host_built_index_;
 +
      /// Instance of trained cuVS CAGRA index
      std::shared_ptr<cuvs::neighbors::cagra::index<data_t, uint32_t>> cuvs_index{
