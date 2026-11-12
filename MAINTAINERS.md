@@ -14,7 +14,6 @@ This document contains a list of maintainers in this repo. See [opensearch-proje
 | Vamshi Vijay Nakkirtha   | [vamshin](https://github.com/vamshin)                     |    Amazon   |
 | Yigit Kiran              | [yigithub](https://github.com/yigithub)                   |    Amazon   |
 | Rohan Chitale            | [rchitale7](https://github.com/rchitale7)                 |    Amazon   |
-| Neetika Singhal          | [neetikasinghal](https://github.com/neetikasinghal)       |    Amazon   |
 
 ## Emeritus
 
@@ -23,3 +22,4 @@ This document contains a list of maintainers in this repo. See [opensearch-proje
 | Rajvaibhav Rahane        | [Rajrahane](https://github.com/Rajrahane)                 |    Amazon   |
 | Jay Deng                 | [jed326](https://github.com/jed326)                       |    Amazon   |
 | Owen Halpert             | [owenhalpert](https://github.com/owenhalpert)             |    Amazon   |
+| Neetika Singhal          | [neetikasinghal](https://github.com/neetikasinghal)       |    Amazon   |
