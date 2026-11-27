@@ -25,7 +25,8 @@ Request Parameters
             "ef_construction": 100,
             "ef_search": 100,
             "m": 16,
-            "project_link_to_base_layer": false // optional, see below
+            "project_link_to_base_layer": false, // optional, see below
+            "base_level_only": true // optional, see below
         }
     }, 
     "skip_stored_vectors": false
@@ -50,6 +51,7 @@ Request Response:
 * The existing algorithm parameters will be type checked on the client and server side, but the size of the map is variable to allow for future parameter additions
 * Qualitative parameters like `repository_type`, `data_type`, `engine`, `algorithm`, and `space_type` currently only support the options listed. The other numerical and string settings follow k-NN/repository snapshot precedent on ranges and expected values: https://opensearch.org/docs/latest/search-plugins/knn/knn-index/
 * `project_link_to_base_layer` (in `algorithm_parameters`, default `false`) connects graphs of well-separated clusters. During the GPU to CPU conversion it builds an HNSW layer 1 over a promoted subset of the vectors (built like level 1 of a faiss HNSW with `M = m`: promotion probability `1 / m`, `m` links per node) and projects its links into the base layer, overwriting at most half of a row's lowest-ranked links and never a node's last in-edge. The index stays base-level only, so its format and search are unchanged. Graphs that are already well connected are left unchanged. Not supported for `binary` vectors yet (ignored).
+* `base_level_only` (in `algorithm_parameters`, default `true`) controls whether the returned HNSW index has only the base layer. With `true`, the builder copies the CAGRA graph into the base layer, and search starts from random entry points in the base layer. With `false`, the GPU to CPU conversion also builds upper layers for the HNSW graph on the CPU, so the index has a stored entry point and is searched like a regular HNSW. `false` is honored only for `float` and `binary` vectors with `skip_stored_vectors` set to `false`; any other request continues to receive a base-level-only index. When `false` is honored, `project_link_to_base_layer` is not applied. Service versions that predate this parameter ignore it and return a base-level-only index.
 * `skip_stored_vectors` controls whether to send only the HNSW graph structure back, or the HNSW graph structure with flat vectors attached. It defaults to `false`. If `true`, the k-NN data node must handle stitching the graph back together with the flat vectors at indexing or search time. 
 
 #### Error codes

@@ -41,6 +41,11 @@ class FaissIndexHNSWCagraBuilder(FaissCPUIndexBuilder):
     # to the base level of IndexHNSWCagra without adding upper levels.
     # Doing so enables to search the HNSW index, but removes the
     # ability to add vectors.
+    # When set to false, copyTo also builds HNSW upper levels on CPU above the
+    # copied graph, which gives the index an stored entry point. Faiss supports
+    # this only for float and binary vectors, and only when the vectors are
+    # copied as well (skip_stored_vectors false); FaissIndexBuildService sets
+    # it to true for every other request configuration.
     base_level_only: bool = True
 
     vector_dtype: DataType = DataType.FLOAT

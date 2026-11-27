@@ -71,6 +71,43 @@ class FaissIndexBuildService(IndexBuildService):
             )
         return effective_m
 
+    def _effective_base_level_only(
+        self, index_build_parameters: IndexBuildParameters
+    ) -> bool:
+        """
+        The base_level_only value to convert the CAGRA graph with: returns true when faiss
+        cannot build the HNSW upper levels for this request; otherwise returns requested value.
+
+        GpuIndexCagra.copyTo builds upper levels above the CAGRA graph only for float and binary
+        vectors, and only when it also copies the vectors. It throws for half_float and byte, and
+        with skip_stored_vectors it builds no upper levels but would still write
+        base_level_only = false into the index file.
+        """
+        algorithm_parameters = (
+            index_build_parameters.index_parameters.algorithm_parameters
+        )
+        if algorithm_parameters.base_level_only:
+            return True
+
+        if (
+            index_build_parameters.data_type in (DataType.FLOAT, DataType.BINARY)
+            and not index_build_parameters.skip_stored_vectors
+        ):
+            logger.debug(
+                f"base_level_only=False: building HNSW upper levels for vector path "
+                f"{index_build_parameters.vector_path}"
+            )
+            return False
+
+        logger.info(
+            f"Using base_level_only=True instead of base_level_only=False for vector path "
+            f"{index_build_parameters.vector_path}: HNSW upper levels need float or binary "
+            f"vectors with stored vectors, got data_type="
+            f"{index_build_parameters.data_type.value}, skip_stored_vectors="
+            f"{index_build_parameters.skip_stored_vectors}"
+        )
+        return True
+
     def build_index(
         self,
         index_build_parameters: IndexBuildParameters,
@@ -157,6 +194,11 @@ class FaissIndexBuildService(IndexBuildService):
                 "project_link_to_base_layer": algorithm_parameters.project_link_to_base_layer,
                 # the m the CAGRA graph was built with (layer 1 is HNSW level 1 for M = m)
                 "m": m,
+                # requested through the API (algorithm_parameters); false is honored only where faiss can
+                # build the HNSW upper levels
+                "base_level_only": self._effective_base_level_only(
+                    index_build_parameters
+                ),
             }
             faiss_index_hnsw_cagra_builder = FaissIndexHNSWCagraBuilder.from_dict(
                 cpu_index_config_params

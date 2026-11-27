@@ -76,12 +76,20 @@ class VectorDatasetGenerator:
             dist_params = dataset_config["distribution"]
             data_type = dataset_config["data_type"]
 
-            batch = np.random.normal(
-                dist_params["mean"], dist_params["std"], (batch_size_current, dimension)
-            )
+            if dist_params["type"] == "random_bits":
+                # binary vectors: dimension counts bits, but vectors are stored in bytes
+                batch = np.random.randint(
+                    0, 256, (batch_size_current, dimension // 8), dtype=np.uint8
+                )
+            else:
+                batch = np.random.normal(
+                    dist_params["mean"],
+                    dist_params["std"],
+                    (batch_size_current, dimension),
+                )
 
-            if dist_params["normalize"]:
-                batch = batch / np.linalg.norm(batch, axis=1)[:, np.newaxis]
+                if dist_params["normalize"]:
+                    batch = batch / np.linalg.norm(batch, axis=1)[:, np.newaxis]
             batch = batch.astype(data_type)
             vectors_list.append(batch)
 

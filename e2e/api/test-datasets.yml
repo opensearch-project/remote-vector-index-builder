@@ -78,6 +78,55 @@ datasets:
       std: 1.0
       normalize: true
 
+  # base_level_only: false on float vectors: faiss builds HNSW upper levels above the CAGRA graph.
+  # expect_base_level_only makes the run read the built index back and check its shape
+  test-dataset-multi-layer-float:
+    group: multi_layer
+    dimension: 128
+    num_vectors: 100_000
+    num_queries: 1_000
+    data_type: float32
+    algorithm_parameters:
+      base_level_only: false
+    expect_base_level_only: false
+    distribution:
+      type: normal
+      mean: 0.0
+      std: 1.0
+      normalize: true
+
+  # base_level_only: false on binary vectors: dimension is in bits, but vectors are stored in bytes
+  test-dataset-multi-layer-binary:
+    group: multi_layer
+    dimension: 256
+    num_vectors: 100_000
+    num_queries: 1_000
+    data_type: uint8
+    request_data_type: binary
+    algorithm_parameters:
+      base_level_only: false
+    expect_base_level_only: false
+    distribution:
+      type: random_bits
+
+  # faiss cannot build upper levels for half_float: the request must still succeed, but as a
+  # base-level-only build
+  test-dataset-multi-layer-half-float-fallback:
+    group: multi_layer
+    dimension: 128
+    num_vectors: 100_000
+    num_queries: 1_000
+    data_type: float16
+    request_data_type: half_float
+    algorithm_parameters:
+      base_level_only: false
+    expect_base_level_only: true
+    distribution:
+      type: normal
+      mean: 0.0
+      std: 1.0
+      normalize: true
+
 generation:
   batch_size: 100_000
   seed: 42

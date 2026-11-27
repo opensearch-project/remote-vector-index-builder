@@ -99,6 +99,14 @@ class AlgorithmParameters(BaseModel):
             same m would have. The index stays base-level only. Graphs that are
             already well connected are left unchanged.
             Not supported for binary vectors yet (ignored). Defaults to False.
+        base_level_only (bool): When false, the conversion of the GPU-built CAGRA
+            graph to the CPU HNSW index also builds HNSW upper levels above the
+            CAGRA base layer, so the index has a stored entry point and is
+            searched like a regular HNSW instead of from random entry points.
+            Honored only for float and binary vectors with skip_stored_vectors
+            false; any other request receives a base-level-only index. When it is
+            honored, project_link_to_base_layer is not applied.
+            Defaults to True.
     Note:
         The class is configured to allow extra attributes using the ConfigDict class.
     """
@@ -107,6 +115,7 @@ class AlgorithmParameters(BaseModel):
     ef_search: int = 100
     m: int = 16
     project_link_to_base_layer: bool = False
+    base_level_only: bool = True
     model_config = ConfigDict(extra="allow")
 
 
