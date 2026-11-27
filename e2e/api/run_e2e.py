@@ -9,9 +9,11 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
 import json
 import logging
+import tempfile
 import time
 import sys
 import os
+import faiss
 from botocore.exceptions import ClientError
 from core.common.models.index_build_parameters import DataType, Engine
 from core.object_store.types import ObjectStoreType
@@ -20,6 +22,59 @@ from e2e.api.utils.logging_config import configure_logger
 from e2e.api.vector_dataset_generator import VectorDatasetGenerator
 
 from app.models.job import JobStatus
+
+
+def verify_built_index(
+    s3_client, bucket: str, index_key: str, binary: bool, expect_base_level_only: bool
+) -> dict:
+    """
+    Downloads a built index and verifies what the service wrote.
+
+    It currently checks the graph levels: the base_level_only flag stored in the index
+    and, for an index with upper levels, the entry point and top level that faiss sets
+    while it builds them.
+
+    Args:
+        s3_client: boto3 S3 client
+        bucket: Bucket the index was uploaded to
+        index_key: Key of the index blob
+        binary: True for an index of binary vectors
+        expect_base_level_only: The value of base_level_only the index must have
+
+    Returns:
+        dict: the properties read from the index (base_level_only, entry_point, max_level)
+
+    Raises:
+        RuntimeError: If the index does not match what is expected
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        local_path = os.path.join(temp_dir, os.path.basename(index_key))
+        s3_client.download_file(bucket, index_key, local_path)
+        # Downcast faiss index to reach the CAGRA-specific fields.
+        if binary:
+            index_id_map = faiss.read_index_binary(local_path)
+            cpu_index = faiss.downcast_IndexBinary(index_id_map.index)
+        else:
+            index_id_map = faiss.read_index(local_path)
+            cpu_index = faiss.downcast_index(index_id_map.index)
+
+    index_properties = {
+        "base_level_only": bool(cpu_index.base_level_only),
+        "entry_point": int(cpu_index.hnsw.entry_point),
+        "max_level": int(cpu_index.hnsw.max_level),
+    }
+    del cpu_index, index_id_map
+    if index_properties["base_level_only"] != expect_base_level_only:
+        raise RuntimeError(
+            f"Expected base_level_only={expect_base_level_only} in {index_key}, got {index_properties}"
+        )
+    if not expect_base_level_only and (
+        index_properties["entry_point"] < 0 or index_properties["max_level"] < 1
+    ):
+        raise RuntimeError(
+            f"Expected an entry point and upper levels in {index_key}, got {index_properties}"
+        )
+    return index_properties
 
 
 def run_e2e_index_builder(config_path: str = "e2e/api/test-datasets.yml"):
@@ -56,6 +111,12 @@ def run_e2e_index_builder(config_path: str = "e2e/api/test-datasets.yml"):
                 "repository_type": ObjectStoreType.S3,
                 "engine": Engine.FAISS,
             }
+            # Pass the dataset's optional algorithm_parameters to the request
+            algorithm_parameters = dataset_config.get("algorithm_parameters")
+            if algorithm_parameters:
+                index_build_params["index_parameters"] = {
+                    "algorithm_parameters": algorithm_parameters
+                }
 
             logger.info(f"Running vector index builder workflow for {dataset_name}...")
 
@@ -101,11 +162,28 @@ def run_e2e_index_builder(config_path: str = "e2e/api/test-datasets.yml"):
                 logger.error(error_msg)
                 raise RuntimeError(f"Job Failed for {dataset_name}: {error_msg}")
 
-            logger.info(f"Successfully processed dataset: {dataset_name}")
             metrics = {
                 "dataset": gen_and_upload_metrics,
                 "run_tasks_total_time": run_tasks_total_time,
             }
+
+            # Check that the built index has the expected shape for datasets that
+            # set expect_base_level_only
+            expect_base_level_only = dataset_config.get("expect_base_level_only")
+            if expect_base_level_only is not None:
+                index_key = os.path.join(
+                    os.path.dirname(index_build_params["vector_path"]),
+                    index_file_name,
+                )
+                metrics["built_index"] = verify_built_index(
+                    s3_client,
+                    bucket,
+                    index_key,
+                    index_build_params["data_type"] == DataType.BINARY,
+                    expect_base_level_only,
+                )
+
+            logger.info(f"Successfully processed dataset: {dataset_name}")
             logger.info(f"Metrics for {dataset_name}: {metrics}")
             return dataset_name, True, metrics
         except Exception as e:

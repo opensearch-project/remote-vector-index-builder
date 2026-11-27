@@ -6,6 +6,7 @@
 # compatible open source license.
 
 import faiss
+import logging
 import pytest
 from unittest.mock import patch
 import os
@@ -26,6 +27,13 @@ from core.index_builder.index_builder_utils import (
 from core.common.models.index_builder.faiss import FaissIndexHNSWCagraBuilder
 
 PROJECTION_TARGET = "core.common.models.index_builder.faiss.faiss_index_hnsw_cagra_builder.project_upper_level"
+GPU_BUILDER_FROM_DICT_TARGET = (
+    "core.common.models.index_builder.faiss.FaissGPUIndexCagraBuilder.from_dict"
+)
+CPU_BUILDER_FROM_DICT_TARGET = (
+    "core.common.models.index_builder.faiss.FaissIndexHNSWCagraBuilder.from_dict"
+)
+SERVICE_LOGGER = "core.index_builder.faiss.faiss_index_build_service"
 
 
 class TestFaissIndexBuildService:
@@ -68,9 +76,7 @@ class TestFaissIndexBuildService:
     def _do_test_build_index_success(
         self, service, vectors_dataset, index_build_parameters, tmp_path
     ):
-        with patch(
-            "core.common.models.index_builder.faiss.FaissGPUIndexCagraBuilder.from_dict"
-        ) as mock_gpu_from_dict:
+        with patch(GPU_BUILDER_FROM_DICT_TARGET) as mock_gpu_from_dict:
 
             output_path = str(tmp_path / "output.index")
             mock_gpu_from_dict.return_value = FaissGPUIndexCagraBuilder()
@@ -313,10 +319,8 @@ class TestFaissIndexBuildService:
         tmp_path,
     ):
         """Test that skip_stored_vectors=True is passed through to CPU index builder"""
-        with patch(
-            "core.common.models.index_builder.faiss.FaissGPUIndexCagraBuilder.from_dict"
-        ) as mock_gpu_from_dict, patch(
-            "core.common.models.index_builder.faiss.FaissIndexHNSWCagraBuilder.from_dict"
+        with patch(GPU_BUILDER_FROM_DICT_TARGET) as mock_gpu_from_dict, patch(
+            CPU_BUILDER_FROM_DICT_TARGET
         ) as mock_cpu_from_dict:
             from core.common.models.index_builder.faiss import FaissGPUIndexCagraBuilder
 
@@ -340,10 +344,8 @@ class TestFaissIndexBuildService:
         tmp_path,
     ):
         """Test that skip_stored_vectors=True is passed through to CPU index builder for binary"""
-        with patch(
-            "core.common.models.index_builder.faiss.FaissGPUIndexCagraBuilder.from_dict"
-        ) as mock_gpu_from_dict, patch(
-            "core.common.models.index_builder.faiss.FaissIndexHNSWCagraBuilder.from_dict"
+        with patch(GPU_BUILDER_FROM_DICT_TARGET) as mock_gpu_from_dict, patch(
+            CPU_BUILDER_FROM_DICT_TARGET
         ) as mock_cpu_from_dict:
             from core.common.models.index_builder.faiss import FaissGPUIndexCagraBuilder
 
@@ -409,7 +411,7 @@ class TestFaissIndexBuildService:
             request.getfixturevalue(params_fixture)
         )
         with patch(
-            "core.common.models.index_builder.faiss.FaissIndexHNSWCagraBuilder.from_dict",
+            CPU_BUILDER_FROM_DICT_TARGET,
             wraps=FaissIndexHNSWCagraBuilder.from_dict,
         ) as mock_cpu_from_dict, patch(PROJECTION_TARGET):
             service.build_index(index_build_parameters, vectors_dataset)
@@ -464,6 +466,186 @@ class TestFaissIndexBuildService:
             )
 
         mock_projection.assert_not_called()
+
+    @staticmethod
+    def _with_base_level_only(index_build_parameters, base_level_only=False, **updates):
+        """Deep copy of the request with algorithm_parameters.base_level_only set, plus top-level updates"""
+        params = index_build_parameters.model_copy(deep=True, update=updates)
+        params.index_parameters.algorithm_parameters.base_level_only = base_level_only
+        return params
+
+    @staticmethod
+    def _build_and_capture(service, index_build_parameters, vectors_dataset, caplog):
+        """
+        Runs build_index. Returns the config dict given to the CPU index builder, the build output
+        and the build service's log records about base_level_only.
+        """
+        with caplog.at_level(logging.DEBUG, logger=SERVICE_LOGGER), patch(
+            CPU_BUILDER_FROM_DICT_TARGET,
+            wraps=FaissIndexHNSWCagraBuilder.from_dict,
+        ) as mock_cpu_from_dict:
+            output = service.build_index(index_build_parameters, vectors_dataset)
+
+        records = [
+            record
+            for record in caplog.records
+            if record.name == SERVICE_LOGGER
+            and "base_level_only" in record.getMessage()
+        ]
+        return mock_cpu_from_dict.call_args[0][0], output, records
+
+    def test_base_level_only_defaults_to_true(self, index_build_parameters):
+        """Requests that do not set the parameter keep today's base-level-only graph"""
+        assert (
+            index_build_parameters.index_parameters.algorithm_parameters.base_level_only
+            is True
+        )
+
+    def test_base_level_only_is_optional_in_request(self, index_build_parameters):
+        """A request from a client that predates the parameter still validates"""
+        from core.common.models import IndexBuildParameters
+
+        request = index_build_parameters.model_dump(mode="json")
+        del request["index_parameters"]["algorithm_parameters"]["base_level_only"]
+        parsed = IndexBuildParameters.model_validate(request)
+        assert parsed.index_parameters.algorithm_parameters.base_level_only is True
+
+    def test_base_level_only_parsed_from_request(self, index_build_parameters):
+        """base_level_only is accepted in index_parameters.algorithm_parameters"""
+        from core.common.models import IndexBuildParameters
+
+        request = index_build_parameters.model_dump(mode="json")
+        request["index_parameters"]["algorithm_parameters"]["base_level_only"] = False
+        parsed = IndexBuildParameters.model_validate(request)
+        assert parsed.index_parameters.algorithm_parameters.base_level_only is False
+
+    @pytest.mark.parametrize(
+        "dataset_fixture,params_fixture",
+        [
+            ("vectors_dataset", "index_build_parameters"),
+            ("binary_vectors_dataset", "binary_index_build_parameters"),
+        ],
+    )
+    def test_build_index_honors_base_level_only_false(
+        self, service, request, caplog, dataset_fixture, params_fixture
+    ):
+        """float and binary vectors with stored vectors: the CPU index is built with upper levels"""
+        index_build_parameters = self._with_base_level_only(
+            request.getfixturevalue(params_fixture)
+        )
+
+        cpu_call_args, output, records = self._build_and_capture(
+            service,
+            index_build_parameters,
+            request.getfixturevalue(dataset_fixture),
+            caplog,
+        )
+
+        assert cpu_call_args["base_level_only"] is False
+        assert output.cpu_index.base_level_only is False
+        # Honored request logs are visible only at DEBUG
+        assert [record.levelno for record in records] == [logging.DEBUG]
+        assert index_build_parameters.vector_path in records[0].getMessage()
+
+    @pytest.mark.parametrize(
+        "dataset_fixture,params_fixture",
+        [
+            ("vectors_dataset", "index_build_parameters"),
+            ("binary_vectors_dataset", "binary_index_build_parameters"),
+        ],
+    )
+    def test_build_index_keeps_base_level_only_by_default(
+        self, service, request, caplog, dataset_fixture, params_fixture
+    ):
+        """Without the parameter the build is unchanged and logs nothing about it"""
+        cpu_call_args, output, records = self._build_and_capture(
+            service,
+            request.getfixturevalue(params_fixture),
+            request.getfixturevalue(dataset_fixture),
+            caplog,
+        )
+
+        assert cpu_call_args["base_level_only"] is True
+        assert output.cpu_index.base_level_only is True
+        assert records == []
+
+    @pytest.mark.parametrize(
+        "dataset_fixture,params_fixture,updates",
+        [
+            ("byte_vectors_dataset", "byte_index_build_parameters", {}),
+            (
+                "fp16_vectors_dataset",
+                "index_build_parameters",
+                {"data_type": DataType.FLOAT16},
+            ),
+            ("vectors_dataset", "skip_stored_vectors_index_build_parameters", {}),
+            (
+                "binary_vectors_dataset",
+                "skip_stored_vectors_binary_index_build_parameters",
+                {},
+            ),
+        ],
+        ids=["byte", "half_float", "float_skip_stored", "binary_skip_stored"],
+    )
+    def test_build_index_falls_back_to_base_level_only(
+        self, service, request, caplog, dataset_fixture, params_fixture, updates
+    ):
+        """
+        faiss cannot build upper levels for half_float or byte vectors, or without the stored
+        vectors: the request still succeeds but as a base-level-only build, and says so at INFO
+        """
+        index_build_parameters = self._with_base_level_only(
+            request.getfixturevalue(params_fixture), **updates
+        )
+
+        cpu_call_args, output, records = self._build_and_capture(
+            service,
+            index_build_parameters,
+            request.getfixturevalue(dataset_fixture),
+            caplog,
+        )
+
+        assert cpu_call_args["base_level_only"] is True
+        assert output.cpu_index.base_level_only is True
+        assert [record.levelno for record in records] == [logging.INFO]
+        message = records[0].getMessage()
+        assert index_build_parameters.vector_path in message
+        assert f"data_type={index_build_parameters.data_type.value}" in message
+        assert (
+            f"skip_stored_vectors={index_build_parameters.skip_stored_vectors}"
+            in message
+        )
+
+    def test_build_index_with_upper_levels_does_not_project(
+        self, service, vectors_dataset, index_build_parameters
+    ):
+        """An honored base_level_only=False takes precedence over project_link_to_base_layer"""
+        with patch(PROJECTION_TARGET) as mock_projection:
+            output = service.build_index(
+                self._with_base_level_only(
+                    self._with_projection(index_build_parameters)
+                ),
+                vectors_dataset,
+            )
+
+        mock_projection.assert_not_called()
+        assert output.cpu_index.base_level_only is False
+
+    def test_build_index_projects_when_base_level_only_falls_back(
+        self, service, byte_vectors_dataset, byte_index_build_parameters
+    ):
+        """A base_level_only=False that is not honored leaves project_link_to_base_layer in effect"""
+        with patch(PROJECTION_TARGET) as mock_projection:
+            # Index build service/faiss does not support upper level build for byte vectors
+            output = service.build_index(
+                self._with_base_level_only(
+                    self._with_projection(byte_index_build_parameters)
+                ),
+                byte_vectors_dataset,
+            )
+
+        mock_projection.assert_called_once()
+        assert output.cpu_index.base_level_only is True
 
     def test_write_cpu_index_skip_stored_vectors_passes_io_flag(
         self,

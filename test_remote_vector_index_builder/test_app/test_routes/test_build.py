@@ -46,6 +46,26 @@ def test_create_job_success(client, mock_job_service, index_build_parameters):
     mock_job_service.create_job.assert_called_once()
 
 
+def test_create_job_with_base_level_only(
+    client, mock_job_service, index_build_parameters
+):
+    """algorithm_parameters.base_level_only is part of the API and reaches the job service"""
+    # Arrange
+    app = client.app
+    app.state.job_service = mock_job_service
+    mock_job_service.create_job.return_value = "test_job_id"
+    body = index_build_parameters.model_dump()
+    body["index_parameters"]["algorithm_parameters"]["base_level_only"] = False
+
+    # Act
+    response = client.post("/_build", json=body)
+
+    # Assert
+    assert response.status_code == 200
+    created = mock_job_service.create_job.call_args[0][0]
+    assert created.index_parameters.algorithm_parameters.base_level_only is False
+
+
 def test_create_job_hash_collision(client, mock_job_service, index_build_parameters):
     # Arrange
     app = client.app

@@ -392,3 +392,42 @@ class TestFaissIndexHNSWCagraBuilder:
         assert "Failed to convert GPU index to CPU index: bad argument" in str(
             exc_info.value
         )
+
+    @pytest.mark.parametrize("base_level_only", [True, False])
+    def test_base_level_only_reaches_cpu_index(
+        self, mock_gpu_index, mock_index_id_map, base_level_only
+    ):
+        """
+        Float vectors: base_level_only is set on the CPU index before the plain copyTo;
+        false asks faiss for upper levels
+        """
+        from core.common.models.index_build_parameters import DataType
+
+        builder = FaissIndexHNSWCagraBuilder(
+            base_level_only=base_level_only, vector_dtype=DataType.FLOAT
+        )
+        calls = self._track_copyTo(mock_gpu_index)
+
+        result = self._convert(builder, mock_gpu_index, mock_index_id_map)
+
+        assert calls == [(result.cpu_index, False)]
+        assert isinstance(result.cpu_index, faiss.IndexHNSWCagra)
+        assert result.cpu_index.base_level_only is base_level_only
+
+    @pytest.mark.parametrize("base_level_only", [True, False])
+    def test_binary_base_level_only_reaches_cpu_index(self, base_level_only):
+        """Same for binary vectors, which convert to an IndexBinaryHNSWCagra"""
+        from core.common.models.index_build_parameters import DataType
+
+        builder = FaissIndexHNSWCagraBuilder(
+            base_level_only=base_level_only, vector_dtype=DataType.BINARY
+        )
+        mock_gpu_binary_index = faiss.GpuIndexBinaryCagra()
+        mock_binary_index_id_map = faiss.IndexBinaryIDMap()
+        calls = self._track_copyTo(mock_gpu_binary_index)
+
+        result = self._convert(builder, mock_gpu_binary_index, mock_binary_index_id_map)
+
+        assert calls == [(result.cpu_index, False)]
+        assert isinstance(result.cpu_index, faiss.IndexBinaryHNSWCagra)
+        assert result.cpu_index.base_level_only is base_level_only
